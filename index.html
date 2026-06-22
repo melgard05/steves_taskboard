@@ -37,6 +37,7 @@
   #whoami{color:#dfe7e4;font-weight:600;font-size:14px;white-space:nowrap}
   #logoutBtn{background:#2c393f;color:#eaf0ee;border-color:#3c4a51;min-height:40px;padding:8px 12px}
   .pinbox{width:84px;border:1px solid var(--line);border-radius:7px;padding:7px 8px;min-height:38px;background:var(--card);color:var(--ink)}
+  .nm-edit{flex:1;min-width:120px;border:1px solid var(--line);border-radius:7px;padding:7px 8px;min-height:38px;background:var(--card);color:var(--ink);font-weight:600}
   .people-row{flex-wrap:wrap}
   .conn{font-size:11px;color:#9fb0ad;display:flex;align-items:center;gap:5px}
   .conn .led{width:8px;height:8px;border-radius:50%;background:#7d8a90}
@@ -487,7 +488,7 @@ function drawTaskModal(){
 
   $("#taskFoot").innerHTML = isNew
     ? `<button class="btn ghost" id="cancelTask" style="flex:1">Cancel</button><button class="btn primary" id="createTask" style="flex:2">Create task</button>`
-    : `<button class="btn danger" id="deleteTask">Delete</button><div style="flex:1"></div><button class="btn primary" id="doneBtn">Done</button>`;
+    : `${canSeeAll()?'<button class="btn danger" id="deleteTask">Delete</button>':''}<div style="flex:1"></div><button class="btn primary" id="doneBtn">Done</button>`;
   wireFoot();
 }
 function hydratePhotos(){
@@ -598,6 +599,7 @@ function commitNew(){
   drawTaskModal(); hydratePhotos();
 }
 async function deleteTask(){
+  if(!canSeeAll()){ alert("Only managers can delete tasks. You can mark it Done instead."); return; }
   if(!confirm("Delete this task? This can't be undone.")) return;
   for(const pid of editing.photos||[]){ try{ await store.delPhoto(pid); delete photoCache[pid]; }catch(e){} }
   await store.delTask(editing.id); delete S.tasks[editing.id]; closeScrim("#taskScrim"); render();
@@ -632,15 +634,32 @@ async function removePhoto(id){
 }
 
 /* ---------- settings ---------- */
+function renamePersonInTasks(oldN,newN){
+  let changed=0;
+  for(const t of Object.values(S.tasks)){
+    let ch=false;
+    if(t.initiator===oldN){ t.initiator=newN; ch=true; }
+    (t.assignees||[]).forEach(a=>{ if(!a.external && a.name===oldN){ a.name=newN; ch=true; } });
+    if(ch){ store.putTask(t,true); changed++; }
+  }
+  if(changed) render();
+}
+function renameLocationInTasks(oldL,newL){
+  let changed=0;
+  for(const t of Object.values(S.tasks)){ if(t.location===oldL){ t.location=newL; store.putTask(t,true); changed++; } }
+  if(S.loc===oldL) S.loc=newL;
+  if(changed) render();
+}
 function openSettings(){
   const c=S.config;
   $("#setBody").innerHTML=`
     <div class="section-h">People</div>
-    <div class="hint">Give each person a PIN — that's what they sign in with. Tick <b>manager</b> for anyone who should see every task and be able to pin tasks to the top; leave it off for crew so they only see their own work. (A person with no PIN can sign in without one until you set it.)</div>
-    <div>${(c.people||[]).map((p,i)=>`<div class="people-row"><span class="nm">${esc(p.name)}</span><input type="text" inputmode="numeric" class="pinbox" data-pin="${i}" value="${esc(p.pin||"")}" placeholder="PIN" maxlength="8" autocomplete="off"><label><input type="checkbox" data-manager="${i}" ${isManager(p)?"checked":""}> manager</label><button class="btn ghost danger" data-delp="${i}">Remove</button></div>`).join("")}</div>
+    <div class="hint">Tap a name to edit it. Give each person a <b>unique</b> PIN — that's all they enter to sign in. Tick <b>manager</b> for anyone who should see every task, delete tasks, and pin tasks to the top; leave it off for crew so they only see their own work. (Someone with no PIN can sign in by name until you set one.)</div>
+    <div>${(c.people||[]).map((p,i)=>`<div class="people-row"><input class="nm-edit" data-pname="${i}" data-orig="${esc(p.name)}" value="${esc(p.name)}" aria-label="Name"><input type="text" inputmode="numeric" class="pinbox" data-pin="${i}" value="${esc(p.pin||"")}" placeholder="PIN" maxlength="8" autocomplete="off"><label><input type="checkbox" data-manager="${i}" ${isManager(p)?"checked":""}> manager</label><button class="btn ghost danger" data-delp="${i}">Remove</button></div>`).join("")}</div>
     <div class="addbar" style="margin-top:8px"><input type="text" id="newPerson" placeholder="Add a person"><button class="btn" id="addNewPerson">Add</button></div>
     <div class="section-h">Locations</div>
-    <div>${(c.locations||[]).map((l,i)=>`<div class="people-row"><span class="nm">${esc(l)}</span><button class="btn ghost danger" data-delloc="${i}">Remove</button></div>`).join("")}</div>
+    <div class="hint">Tap a location to rename it.</div>
+    <div>${(c.locations||[]).map((l,i)=>`<div class="people-row"><input class="nm-edit" data-lname="${i}" data-orig="${esc(l)}" value="${esc(l)}" aria-label="Location"><button class="btn ghost danger" data-delloc="${i}">Remove</button></div>`).join("")}</div>
     <div class="addbar" style="margin-top:8px"><input type="text" id="newLoc" placeholder="Add a location"><button class="btn" id="addNewLoc">Add</button></div>`;
   $("#addNewPerson").onclick=()=>{ const v=$("#newPerson").value.trim(); if(!v) return; S.config.people.push({name:v,pin:"",manager:false}); openSettings(); };
   $("#addNewLoc").onclick=()=>{ const v=$("#newLoc").value.trim(); if(!v) return; S.config.locations.push(v); openSettings(); };
@@ -648,29 +667,59 @@ function openSettings(){
   document.querySelectorAll("[data-delloc]").forEach(b=>b.onclick=()=>{ S.config.locations.splice(parseInt(b.dataset.delloc,10),1); openSettings(); });
   document.querySelectorAll("[data-manager]").forEach(cb=>cb.onclick=()=>{ S.config.people[parseInt(cb.dataset.manager,10)].manager=cb.checked; });
   document.querySelectorAll("[data-pin]").forEach(inp=>inp.onchange=()=>{ S.config.people[parseInt(inp.dataset.pin,10)].pin=inp.value.trim(); });
+  document.querySelectorAll("[data-pname]").forEach(inp=>inp.onchange=()=>{
+    const i=parseInt(inp.dataset.pname,10), oldN=inp.dataset.orig, newN=inp.value.trim();
+    if(!newN){ inp.value=oldN; return; }
+    S.config.people[i].name=newN;
+    if(oldN!==newN){ if(S.currentUser===oldN){ S.currentUser=newN; lsSet("sb_auth",newN); } renamePersonInTasks(oldN,newN); }
+    inp.dataset.orig=newN; try{ store.putConfig(S.config); }catch(e){}
+  });
+  document.querySelectorAll("[data-lname]").forEach(inp=>inp.onchange=()=>{
+    const i=parseInt(inp.dataset.lname,10), oldL=inp.dataset.orig, newL=inp.value.trim();
+    if(!newL){ inp.value=oldL; return; }
+    S.config.locations[i]=newL;
+    if(oldL!==newL) renameLocationInTasks(oldL,newL);
+    inp.dataset.orig=newL; try{ store.putConfig(S.config); }catch(e){}
+  });
   openScrim("#setScrim");
 }
 $("#setSave")?.addEventListener("click",async()=>{ try{await store.putConfig(S.config);}catch(e){} closeScrim("#setScrim"); render(); });
 
 /* ---------- sign in ---------- */
+function showLoginErr(msg){ const e=$("#loginErr"); if(e){ e.textContent=msg; e.style.display="block"; } }
 function showLogin(){
-  const ppl=(S.config.people||[]);
+  const ppl=(S.config.people||[]); const noPin=ppl.filter(p=>!p.pin);
   $("#loginBody").innerHTML=`
-    <p class="hint">Pick your name and enter your PIN.</p>
-    <label class="fld"><span>Name</span><select id="loginName">${ppl.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("")}</select></label>
+    <p class="hint">Enter your PIN to sign in.</p>
     <label class="fld"><span>PIN</span><input type="password" id="loginPin" inputmode="numeric" autocomplete="off" placeholder="Your PIN"></label>
     <div id="loginErr" style="color:var(--p-crit);font-size:13.5px;margin:-4px 0 12px;display:none"></div>
-    <button class="btn primary" id="loginGo" style="width:100%">Log in</button>`;
+    <button class="btn primary" id="loginGo" style="width:100%">Log in</button>
+    ${noPin.length?`<p class="hint" style="margin-top:16px">No PIN yet? <a href="#" id="loginByName">Sign in by name</a></p><div id="nameFallback" style="display:none;margin-top:6px"><label class="fld"><span>Name</span><select id="loginName">${noPin.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("")}</select></label><button class="btn" id="loginNameGo" style="width:100%">Sign in</button></div>`:""}`;
   $("#loginScrim").classList.add("open"); document.body.style.overflow="hidden";
-  $("#loginGo").onclick=doLogin;
-  $("#loginPin").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
+  $("#loginGo").onclick=doLoginPin;
+  $("#loginPin").addEventListener("keydown",e=>{ if(e.key==="Enter") doLoginPin(); });
+  if(noPin.length){
+    $("#loginByName").onclick=e=>{ e.preventDefault(); $("#nameFallback").style.display="block"; };
+    $("#loginNameGo").onclick=doLoginName;
+  }
 }
-function doLogin(){
-  const name=$("#loginName").value, pin=$("#loginPin").value.trim();
-  const p=(S.config.people||[]).find(x=>x.name===name); if(!p) return;
-  if(p.pin && p.pin!==pin){ const e=$("#loginErr"); e.textContent="That PIN doesn't match. Try again."; e.style.display="block"; return; }
+function doLoginPin(){
+  const pin=$("#loginPin").value.trim();
+  if(!pin) return showLoginErr("Enter your PIN.");
+  const hits=(S.config.people||[]).filter(p=>p.pin && p.pin===pin);
+  if(hits.length===0) return showLoginErr("PIN not recognized.");
+  if(hits.length>1) return showLoginErr("That PIN is shared by more than one person — ask a manager to make it unique.");
+  finishLogin(hits[0].name);
+}
+function doLoginName(){
+  const name=$("#loginName").value, p=(S.config.people||[]).find(x=>x.name===name);
+  if(!p) return;
+  if(p.pin) return showLoginErr("That person has a PIN now — use the PIN field above.");
+  finishLogin(name);
+}
+function finishLogin(name){
   S.currentUser=name; S.authed=true; lsSet("sb_auth",name);
-  S.view = canSeeAll()?"open":"mine";
+  S.view=canSeeAll()?"open":"mine";
   $("#loginScrim").classList.remove("open"); document.body.style.overflow="";
   render();
 }
