@@ -109,12 +109,12 @@
 
   .fab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:25;background:var(--accent);color:#fff;border:0;border-radius:999px;height:56px;padding:0 22px 0 18px;font-size:16px;font-weight:700;box-shadow:0 6px 20px rgba(31,122,77,.4);display:inline-flex;align-items:center;gap:8px}
 
-  .scrim{position:fixed;inset:0;background:rgba(20,28,32,.5);z-index:50;display:none;align-items:flex-end;justify-content:center}
+  .scrim{position:fixed;inset:0;background:rgba(20,28,32,.5);z-index:50;display:none;align-items:flex-start;justify-content:center}
   .scrim.open{display:flex}
-  .sheet{background:var(--bg);width:100%;max-width:640px;max-height:94vh;border-radius:16px 16px 0 0;display:flex;flex-direction:column;box-shadow:0 -4px 30px rgba(0,0,0,.25)}
-  @media(min-width:680px){.scrim{align-items:center}.sheet{border-radius:16px;max-height:90vh}}
+  .sheet{background:var(--bg);width:100%;max-width:640px;max-height:94vh;border-radius:0 0 16px 16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 4px 30px rgba(0,0,0,.25)}
+  @media(min-width:680px){.scrim{align-items:center}.sheet{border-radius:16px;max-height:90vh;margin-top:0}}
   .sheet h2{margin:0;font-size:18px}
-  .sheet-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--bg);border-radius:16px 16px 0 0}
+  .sheet-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--bg)}
   .sheet-body{overflow:auto;padding:14px 16px;flex:1}
   .sheet-foot{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line);background:var(--bg)}
   .x{margin-left:auto;border:1px solid var(--line);background:var(--card);border-radius:8px;width:40px;height:40px;font-size:18px;line-height:1}
@@ -783,7 +783,7 @@ function finishLogin(name){
   S.currentUser=name; S.authed=true; lsSet("sb_auth",name);
   S.view=canSeeAll()?"open":"mine";
   $("#loginScrim").classList.remove("open"); document.body.style.overflow="";
-  render(); maybeShowInstallHint();
+  render(); maybeShowInstallHint(); enablePush(true,false);
 }
 function logout(){ S.authed=false; S.currentUser=""; try{localStorage.removeItem("sb_auth");}catch(e){} render(); showLogin(); }
 
@@ -826,18 +826,29 @@ function exportCSV(){
 const PUSH_OK = !!(CONFIG.PUSH.WORKER_URL && CONFIG.PUSH.VAPID_PUBLIC_KEY && ("serviceWorker" in navigator) && ("PushManager" in window) && ("Notification" in window));
 function urlB64ToUint8(b64){ const pad="=".repeat((4-b64.length%4)%4); const s=(b64+pad).replace(/-/g,"+").replace(/_/g,"/"); const raw=atob(s); const out=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++) out[i]=raw.charCodeAt(i); return out; }
 function markPush(on){ const b=$("#pushBtn"); if(!b) return; b.classList.toggle("on",on); b.textContent=on?"🔔 Alerts on":"🔔 Alerts"; }
-async function enablePush(){
-  if(!PUSH_OK) return;
-  if(!S.currentUser){ alert("Pick who you are up top first, so alerts reach the right person."); return; }
-  if(isIOS() && !isStandalone()){ alert("On iPhone, first add this to your Home Screen (Share → Add to Home Screen) and open it from there. Then alerts can be turned on."); maybeShowInstallHint(); return; }
+async function enablePush(interactive,test){
+  if(!PUSH_OK || !S.currentUser) return;
+  if(isIOS() && !isStandalone()){ if(interactive){ alert("On iPhone, add this to your Home Screen first (Share → Add to Home Screen) and open it from there. Then alerts can be turned on."); maybeShowInstallHint(); } return; }
+  let perm=Notification.permission;
+  if(perm==="default"){ if(!interactive) return; try{ perm=await Notification.requestPermission(); }catch(e){} }
+  if(perm!=="granted"){ if(interactive) alert("Notifications are turned off for this site in your phone's settings. Turn them on for it, then tap the bell again."); markPush(false); return; }
   try{
     const reg=await navigator.serviceWorker.register("./sw.js");
-    let perm=Notification.permission; if(perm!=="granted") perm=await Notification.requestPermission();
-    if(perm!=="granted"){ alert("Alerts are turned off in your browser settings."); return; }
+    await navigator.serviceWorker.ready;
     const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlB64ToUint8(CONFIG.PUSH.VAPID_PUBLIC_KEY)});
-    await fetch(CONFIG.PUSH.WORKER_URL.replace(/\/$/,"")+"/subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:S.currentUser,subscription:sub})});
+    const r=await fetch(CONFIG.PUSH.WORKER_URL.replace(/\/$/,"")+"/subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user:S.currentUser,subscription:sub})});
+    if(!r.ok){ if(interactive) alert("Alerts couldn't be registered — the notification server returned "+r.status+". The worker may need a look."); return; }
     lsSet("sb_push","1"); markPush(true);
-  }catch(e){ alert("Couldn't turn on alerts: "+e.message); }
+    if(test) await sendTestPush();
+  }catch(e){ if(interactive) alert("Couldn't turn on alerts: "+(e&&e.message||e)); }
+}
+async function sendTestPush(){
+  try{
+    const r=await fetch(CONFIG.PUSH.WORKER_URL.replace(/\/$/,"")+"/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:[S.currentUser],title:"Alerts are on ✅",body:"You'll get a notification here when a task is assigned to you.",url:"./"})});
+    const j=await r.json().catch(()=>({}));
+    if(j && j.sent===0) alert("Alerts are on, but no device is registered to receive them yet. Fully close the app and reopen it once, then tap the bell again.");
+    else alert("Test notification sent. If it doesn't appear in a few seconds with the app closed, tell me — the worker needs a look.");
+  }catch(e){ alert("Couldn't reach the notification server to send a test."); }
 }
 async function notifyAssignment(task,names){
   if(!CONFIG.PUSH.WORKER_URL) return;
@@ -873,7 +884,7 @@ $("#search").oninput=e=>{ S.q=e.target.value.trim(); render(); };
 $("#newBtn").onclick=openNew;
 $("#exportBtn").onclick=exportCSV;
 $("#settingsBtn").onclick=openSettings;
-$("#pushBtn").onclick=enablePush;
+$("#pushBtn").onclick=()=>enablePush(true,true);
 $("#taskClose").onclick=()=>closeScrim("#taskScrim");
 $("#setClose").onclick=()=>closeScrim("#setScrim");
 $("#taskScrim").onclick=e=>{ if(e.target.id==="taskScrim") closeScrim("#taskScrim"); };
@@ -905,7 +916,7 @@ async function boot(){
   const savedSort=lsGet("sb_sort"); if(savedSort==="due"||savedSort==="imp") S.sort=savedSort;
   const savedLoc=lsGet("sb_loc"); if(savedLoc && (S.config.locations||[]).includes(savedLoc)) S.loc=savedLoc;
   const saved=lsGet("sb_auth");
-  if(saved && (S.config.people||[]).some(p=>p.name===saved)){ S.currentUser=saved; S.authed=true; S.view=canSeeAll()?"open":"mine"; render(); maybeShowInstallHint(); }
+  if(saved && (S.config.people||[]).some(p=>p.name===saved)){ S.currentUser=saved; S.authed=true; S.view=canSeeAll()?"open":"mine"; render(); maybeShowInstallHint(); enablePush(false,false); }
   else { showLogin(); }
   setInterval(()=>{ if(!S.modalOpen) refresh(); },6000);
   window.addEventListener("focus",()=>{ if(!S.modalOpen) refresh(); });
