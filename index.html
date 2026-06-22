@@ -38,6 +38,12 @@
   #logoutBtn{background:#2c393f;color:#eaf0ee;border-color:#3c4a51;min-height:40px;padding:8px 12px}
   .pinbox{width:84px;border:1px solid var(--line);border-radius:7px;padding:7px 8px;min-height:38px;background:var(--card);color:var(--ink)}
   .nm-edit{flex:1;min-width:120px;border:1px solid var(--line);border-radius:7px;padding:7px 8px;min-height:38px;background:var(--card);color:var(--ink);font-weight:600}
+  .pinbox.empty{border-color:var(--p-crit);background:#fdecea}
+  .pin-summary{font-size:13px;font-weight:600;margin:2px 0 12px;padding:9px 11px;border-radius:8px}
+  .pin-summary.warn{background:#fdecea;color:#9a3528;border:1px solid #f1c2bb}
+  .pin-summary.ok{background:#e7f3ec;color:#2c7a4c;border:1px solid #c5e6d2}
+  .tpl-row{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 14px}
+  .tpl-chip{border:1px solid #cfe0d6;background:var(--chip);color:#205a38;border-radius:999px;padding:8px 13px;min-height:40px;font-weight:600;font-size:13.5px}
   .people-row{flex-wrap:wrap}
   .conn{font-size:11px;color:#9fb0ad;display:flex;align-items:center;gap:5px}
   .conn .led{width:8px;height:8px;border-radius:50%;background:#7d8a90}
@@ -168,6 +174,7 @@
 <body>
 
 <div id="cfgBanner" class="banner" style="display:none"></div>
+<div id="installHint" class="banner" style="display:none"></div>
 
 <header>
   <div class="hrow">
@@ -244,7 +251,8 @@ const STATUS=[{v:"open",label:"Open"},{v:"acknowledged",label:"Acknowledged"},{v
 const RECUR=[{v:"",label:"Does not repeat"},{v:"daily",label:"Repeats daily"},{v:"weekly",label:"Repeats weekly"},{v:"monthly",label:"Repeats monthly"}];
 const DEFAULT_CONFIG={
   people:[{name:"Casey",canReorder:true},{name:"Kelly",canReorder:true},{name:"Derick",canReorder:true}],
-  locations:["Main Building","Main Yard","Transfer Building","Transfer Yard"]
+  locations:["Main Building","Main Yard","Transfer Building","Transfer Yard"],
+  templates:[]
 };
 
 /* ---------- utils ---------- */
@@ -287,7 +295,7 @@ const store = {
 
 /* ---------- state ---------- */
 const S={ tasks:{}, config:JSON.parse(JSON.stringify(DEFAULT_CONFIG)), currentUser:"", authed:false, view:"open", sort:"imp", loc:"", q:"", modalOpen:false };
-const VIEWS=[{v:"open",label:"To do"},{v:"unassigned",label:"Unassigned"},{v:"mine",label:"My tasks"},{v:"done",label:"Done"}];
+const VIEWS=[{v:"open",label:"To do"},{v:"unassigned",label:"Unassigned"},{v:"mine",label:"My tasks"},{v:"byperson",label:"By person"},{v:"done",label:"Done"}];
 const photoCache={};
 
 function priorityOf(t){ return PRIORITIES.find(p=>p.v===t.priority)||PRIORITIES[2]; }
@@ -298,6 +306,8 @@ function isPrivileged(){ return isManager(currentPerson()); }
 function assignedNames(t){ return (t.assignees||[]).map(a=>a.name); }
 function isUnassigned(t){ return !(t.assignees&&t.assignees.length); }
 function isMine(t){ return t.initiator===S.currentUser || assignedNames(t).includes(S.currentUser); }
+function lastKey(n){ const p=String(n||"").trim().split(/\s+/); return ((p[p.length-1]||"")+" "+(p[0]||"")).toLowerCase(); }
+function byLast(a,b){ return lastKey(a).localeCompare(lastKey(b)); }
 
 /* ---------- dates ---------- */
 function dueState(t){
@@ -318,6 +328,21 @@ function fmtDue(iso){
 }
 function advance(iso,freq){ const d=new Date(iso+"T00:00"); if(freq==="daily")d.setDate(d.getDate()+1); else if(freq==="weekly")d.setDate(d.getDate()+7); else if(freq==="monthly")d.setMonth(d.getMonth()+1); return d.toISOString().slice(0,10); }
 function fmtTs(ts){ const d=new Date(ts); return d.toLocaleDateString(undefined,{month:"short",day:"numeric"})+" "+d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); }
+function fmtTime(hhmm){ if(!hhmm) return ""; const a=hhmm.split(":"); const d=new Date(); d.setHours(parseInt(a[0],10)||0,parseInt(a[1],10)||0,0,0); return d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); }
+function dueKey(t){ return (t.dueDate||"9999-12-31")+"T"+(t.dueTime||"23:59"); }
+function dueLabel(t){ if(!t.dueDate) return ""; return fmtDue(t.dueDate)+(t.dueTime?(" · "+fmtTime(t.dueTime)):""); }
+function matchQ(t){ if(!S.q) return true; const q=S.q.toLowerCase(); return (t.title||"").toLowerCase().includes(q)||(t.description||"").toLowerCase().includes(q)||(t.initiator||"").toLowerCase().includes(q)||assignedNames(t).join(" ").toLowerCase().includes(q); }
+function renderByPerson(){
+  const host=$("#list"), priv=isPrivileged();
+  let arr=Object.values(S.tasks).filter(t=>t.status!=="done" && matchQ(t));
+  if(S.loc) arr=arr.filter(t=>t.location===S.loc);
+  const names=(S.config.people||[]).map(p=>p.name).sort(byLast);
+  let html="";
+  names.forEach(n=>{ const ts=arr.filter(t=>assignedNames(t).includes(n)).sort(cmp); if(ts.length) html+=`<div class="group-label">${esc(n)} <span style="color:#9aa6ac">(${ts.length})</span></div>`+ts.map(t=>card(t,priv)).join(""); });
+  const un=arr.filter(isUnassigned).sort(cmp);
+  if(un.length) html+=`<div class="group-label">Unassigned (${un.length})</div>`+un.map(t=>card(t,priv)).join("");
+  host.innerHTML = html || `<div class="empty"><b>Nothing to show</b>No open tasks match.</div>`;
+}
 
 /* ---------- filter + sort ---------- */
 function visibleTasks(){
@@ -328,17 +353,17 @@ function visibleTasks(){
   else if(S.view==="mine") arr=arr.filter(isMine);
   if(!mgr && S.view!=="unassigned") arr=arr.filter(isMine);   // crew never see other people's tasks
   if(S.loc) arr=arr.filter(t=>t.location===S.loc);
-  if(S.q){ const q=S.q.toLowerCase(); arr=arr.filter(t=> (t.title||"").toLowerCase().includes(q)||(t.description||"").toLowerCase().includes(q)||(t.initiator||"").toLowerCase().includes(q)||assignedNames(t).join(" ").toLowerCase().includes(q)); }
+  if(S.q) arr=arr.filter(matchQ);
   return arr.sort(cmp);
 }
 function cmp(a,b){
   const ba=a.boost||0, bb=b.boost||0; if(ba!==bb) return bb-ba;
   if(S.sort==="due"){
-    const da=a.dueDate||"9999-12-31", db=b.dueDate||"9999-12-31"; if(da!==db) return da<db?-1:1;
+    const da=dueKey(a), db=dueKey(b); if(da!==db) return da<db?-1:1;
     if((b.priority||2)!==(a.priority||2)) return (b.priority||2)-(a.priority||2);
   } else {
     if((b.priority||2)!==(a.priority||2)) return (b.priority||2)-(a.priority||2);
-    const da=a.dueDate||"9999-12-31", db=b.dueDate||"9999-12-31"; if(da!==db) return da<db?-1:1;
+    const da=dueKey(a), db=dueKey(b); if(da!==db) return da<db?-1:1;
   }
   return (a.createdAt||0)-(b.createdAt||0);
 }
@@ -347,6 +372,7 @@ function countView(v){
   let arr=Object.values(S.tasks);
   if(v==="done"){ arr=arr.filter(t=>t.status==="done"); return (mgr?arr:arr.filter(isMine)).length; }
   arr=arr.filter(t=>t.status!=="done");
+  if(v==="byperson") return arr.length;
   if(v==="unassigned") return arr.filter(isUnassigned).length;
   if(v==="mine") return arr.filter(isMine).length;
   return (mgr?arr:arr.filter(isMine)).length;
@@ -367,6 +393,7 @@ function renderChrome(){
 function render(){
   renderChrome();
   if(!S.authed){ $("#list").innerHTML=""; return; }
+  if(S.view==="byperson" && canSeeAll()){ renderByPerson(); return; }
   const arr=visibleTasks(), host=$("#list"), priv=isPrivileged();
   if(!arr.length){ host.innerHTML=emptyState(); return; }
   const boosted=arr.filter(t=>(t.boost||0)>0), rest=arr.filter(t=>!((t.boost||0)>0));
@@ -392,7 +419,7 @@ function card(t,priv){
       <div class="meta">
         <span class="pill prio ${p.cls}">${p.label}</span>
         ${t.location?`<span class="pill loc">${esc(t.location)}</span>`:""}
-        ${t.dueDate?`<span class="pill due ${ds}">${esc(fmtDue(t.dueDate))}</span>`:""}
+        ${t.dueDate?`<span class="pill due ${ds}">${esc(dueLabel(t))}</span>`:""}
         <span class="pill status-${t.status}">${esc(statusLabel(t.status))}</span>
         ${t.partsOnOrder?`<span class="pill parts">Parts on order</span>`:""}
         ${t.recurring?`<span class="pill recur">Repeats ${esc(t.recurring)}</span>`:""}
@@ -421,9 +448,18 @@ async function bump(id,dir){
 /* ---------- task modal ---------- */
 let editing=null, editingIsNew=false;
 
+function applyTemplate(ti){
+  const tp=(S.config.templates||[])[ti]; if(!tp||!editingIsNew) return;
+  syncFields();
+  if(tp.title) editing.title=tp.title;
+  if(tp.location!==undefined) editing.location=tp.location;
+  if(tp.priority) editing.priority=tp.priority;
+  if(tp.recurring!==undefined) editing.recurring=tp.recurring||"";
+  drawTaskModal();
+}
 function openNew(){
   editingIsNew=true;
-  editing={ id:uid(), title:"", description:"", location:"", priority:2, dueDate:"", status:"open",
+  editing={ id:uid(), title:"", description:"", location:"", priority:2, dueDate:"", dueTime:"", status:"open",
     initiator:S.currentUser||"", assignees:[], partsOnOrder:false, recurring:"", boost:0,
     subtasks:[], photos:[], comments:[], activity:[], escalatedFor:"", createdAt:Date.now(), updatedAt:Date.now() };
   drawTaskModal(); openScrim("#taskScrim");
@@ -438,7 +474,7 @@ function openTask(id){
 function drawTaskModal(){
   const t=editing, isNew=editingIsNew;
   $("#taskTitle").textContent=isNew?"New task":"Task";
-  const people=(S.config.people||[]).map(p=>p.name);
+  const people=(S.config.people||[]).map(p=>p.name).sort(byLast);
   const showSelf=!isNew && S.currentUser && !isMine(t) && t.status!=="done";
   const showAck =!isNew && isMine(t) && t.status==="open";
   const ownerChip=t.initiator?`<span class="achip owner">${esc(t.initiator)} <span class="lock">starter</span></span>`:"";
@@ -449,6 +485,7 @@ function drawTaskModal(){
     ${showSelf?`<div class="self-prompt"><span>Want to take this task?</span><button class="btn primary" id="selfYes">Assign to me</button><button class="btn ghost" id="selfNo">Not now</button></div>`:""}
     ${showAck?`<div class="ack-bar"><span>You're on this. Let the team know you've seen it.</span><button class="btn" id="ackBtn">Acknowledge</button></div>`:""}
 
+    ${(isNew && (S.config.templates||[]).length)?`<div class="section-h" style="margin-top:0">Quick start</div><div class="tpl-row">${(S.config.templates||[]).map((tp,ti)=>`<button type="button" class="tpl-chip" data-tpl="${ti}">${esc(tp.title)}</button>`).join("")}</div>`:""}
     <label class="fld"><span>Task</span><input type="text" id="fTitle" value="${esc(t.title)}" placeholder="What needs to be done?"></label>
     <label class="fld"><span>Details</span><textarea id="fDesc" placeholder="Notes, context, anything useful">${esc(t.description)}</textarea></label>
 
@@ -458,6 +495,9 @@ function drawTaskModal(){
     </div>
     <div class="row2">
       <label class="fld"><span>Due date</span><input type="date" id="fDue" value="${esc(t.dueDate)}"></label>
+      <label class="fld"><span>Due time (optional)</span><input type="time" id="fDueTime" value="${esc(t.dueTime||"")}"></label>
+    </div>
+    <div class="row2">
       <label class="fld"><span>Status</span><select id="fStatus">${STATUS.map(s=>`<option value="${s.v}"${s.v===t.status?" selected":""}>${s.label}</option>`).join("")}</select></label>
     </div>
     <label class="fld"><span>Repeats</span><select id="fRecur">${RECUR.map(r=>`<option value="${r.v}"${r.v===t.recurring?" selected":""}>${r.label}</option>`).join("")}</select></label>
@@ -509,6 +549,7 @@ function syncFields(){
   if(g("fLoc")) editing.location=g("fLoc").value;
   if(g("fPrio")) editing.priority=parseInt(g("fPrio").value,10);
   if(g("fDue")) editing.dueDate=g("fDue").value;
+  if(g("fDueTime")) editing.dueTime=g("fDueTime").value;
   if(g("fStatus")) editing.status=g("fStatus").value;
   if(g("fRecur")) editing.recurring=g("fRecur").value;
   if(g("fParts")) editing.partsOnOrder=g("fParts").checked;
@@ -519,7 +560,7 @@ function taskBodyChange(e){
   const t=e.target;
   if(t.id==="photoInput"){ handlePhotoPick(t.files); return; }
   if(t.matches("[data-subtoggle]")){ toggleSub(parseInt(t.dataset.subtoggle,10)); return; }
-  if(["fTitle","fDesc","fLoc","fPrio","fDue","fRecur","fParts"].includes(t.id)){ syncFields(); if(!editingIsNew) saveTask(editing); return; }
+  if(["fTitle","fDesc","fLoc","fPrio","fDue","fDueTime","fRecur","fParts"].includes(t.id)){ syncFields(); if(!editingIsNew) saveTask(editing); return; }
   if(t.id==="fStatus"){ onStatusChange(); return; }
 }
 function taskBodyClick(e){
@@ -534,6 +575,7 @@ function taskBodyClick(e){
   if(t.id==="selfYes"){ takeIt(); return; }
   if(t.id==="selfNo"){ const sp=t.closest(".self-prompt"); if(sp) sp.remove(); return; }
   if(t.id==="ackBtn"){ acknowledge(); return; }
+  const tp=t.closest("[data-tpl]"); if(tp){ applyTemplate(parseInt(tp.dataset.tpl,10)); return; }
 }
 function wireFoot(){
   const c=$("#cancelTask"); if(c) c.onclick=()=>closeScrim("#taskScrim");
@@ -595,6 +637,8 @@ function commitNew(){
   editing.initiator=S.currentUser;
   if(!(editing.activity||[]).some(e=>e.what==="created the task")) logEvent(editing,"created the task");
   saveTask(editing);
+  const newInternal=(editing.assignees||[]).filter(a=>!a.external).map(a=>a.name);
+  if(newInternal.length) notifyAssignment(editing,newInternal);
   editingIsNew=false;            // switch to edit mode so photos/comments unlock
   drawTaskModal(); hydratePhotos();
 }
@@ -650,23 +694,37 @@ function renameLocationInTasks(oldL,newL){
   if(S.loc===oldL) S.loc=newL;
   if(changed) render();
 }
+function refreshPinFlags(){
+  const missing=(S.config.people||[]).filter(p=>!p.pin).map(p=>p.name).sort(byLast);
+  const sum=$("#pinSummary");
+  if(sum){ sum.className="pin-summary "+(missing.length?"warn":"ok"); sum.innerHTML = missing.length ? ("⚠ No PIN set yet ("+missing.length+"): "+missing.map(esc).join(", ")+". They can sign in by name until you set one.") : "✓ Everyone has a PIN set."; }
+  document.querySelectorAll("[data-pin]").forEach(inp=>inp.classList.toggle("empty",!inp.value.trim()));
+}
 function openSettings(){
   const c=S.config;
+  (c.people||[]).sort((a,b)=>byLast(a.name,b.name));
   $("#setBody").innerHTML=`
     <div class="section-h">People</div>
-    <div class="hint">Tap a name to edit it. Give each person a <b>unique</b> PIN — that's all they enter to sign in. Tick <b>manager</b> for anyone who should see every task, delete tasks, and pin tasks to the top; leave it off for crew so they only see their own work. (Someone with no PIN can sign in by name until you set one.)</div>
+    <div class="hint">Tap a name to edit it. Give each person a <b>unique</b> PIN — that's all they enter to sign in. Tick <b>manager</b> for anyone who should see every task, delete tasks, and pin tasks to the top; leave it off for crew so they only see their own work.</div>
+    <div id="pinSummary" class="pin-summary"></div>
     <div>${(c.people||[]).map((p,i)=>`<div class="people-row"><input class="nm-edit" data-pname="${i}" data-orig="${esc(p.name)}" value="${esc(p.name)}" aria-label="Name"><input type="text" inputmode="numeric" class="pinbox" data-pin="${i}" value="${esc(p.pin||"")}" placeholder="PIN" maxlength="8" autocomplete="off"><label><input type="checkbox" data-manager="${i}" ${isManager(p)?"checked":""}> manager</label><button class="btn ghost danger" data-delp="${i}">Remove</button></div>`).join("")}</div>
     <div class="addbar" style="margin-top:8px"><input type="text" id="newPerson" placeholder="Add a person"><button class="btn" id="addNewPerson">Add</button></div>
     <div class="section-h">Locations</div>
     <div class="hint">Tap a location to rename it.</div>
     <div>${(c.locations||[]).map((l,i)=>`<div class="people-row"><input class="nm-edit" data-lname="${i}" data-orig="${esc(l)}" value="${esc(l)}" aria-label="Location"><button class="btn ghost danger" data-delloc="${i}">Remove</button></div>`).join("")}</div>
-    <div class="addbar" style="margin-top:8px"><input type="text" id="newLoc" placeholder="Add a location"><button class="btn" id="addNewLoc">Add</button></div>`;
+    <div class="addbar" style="margin-top:8px"><input type="text" id="newLoc" placeholder="Add a location"><button class="btn" id="addNewLoc">Add</button></div>
+    <div class="section-h">Quick-start templates</div>
+    <div class="hint">One-tap presets for tasks you create often. They prefill the title, location, importance, and repeat on a new task.</div>
+    <div>${(c.templates||[]).map((tp,i)=>`<div class="people-row"><span class="nm">${esc(tp.title)}${tp.location?` · ${esc(tp.location)}`:""}${tp.priority?` · ${esc((PRIORITIES.find(x=>x.v===tp.priority)||{}).label||"")}`:""}</span><button class="btn ghost danger" data-deltpl="${i}">Remove</button></div>`).join("")}</div>
+    <div style="margin-top:8px"><input type="text" id="tplTitle" placeholder="Template title" style="width:100%;border:1px solid var(--line);border-radius:9px;padding:11px 12px;min-height:46px;margin-bottom:8px"><div class="row2"><select id="tplLoc"><option value="">— location (optional) —</option>${(c.locations||[]).map(l=>`<option value="${esc(l)}">${esc(l)}</option>`).join("")}</select><select id="tplPrio">${PRIORITIES.map(p=>`<option value="${p.v}"${p.v===2?" selected":""}>${p.label}</option>`).join("")}</select></div><div class="row2" style="margin-top:8px"><select id="tplRecur">${RECUR.map(r=>`<option value="${r.v}">${r.label}</option>`).join("")}</select><button class="btn" id="addTpl">Add template</button></div></div>`;
+  $("#addTpl").onclick=()=>{ const ti=$("#tplTitle").value.trim(); if(!ti) return; S.config.templates=S.config.templates||[]; S.config.templates.push({title:ti,location:$("#tplLoc").value,priority:parseInt($("#tplPrio").value,10),recurring:$("#tplRecur").value}); openSettings(); };
+  document.querySelectorAll("[data-deltpl]").forEach(b=>b.onclick=()=>{ S.config.templates.splice(parseInt(b.dataset.deltpl,10),1); openSettings(); });
   $("#addNewPerson").onclick=()=>{ const v=$("#newPerson").value.trim(); if(!v) return; S.config.people.push({name:v,pin:"",manager:false}); openSettings(); };
   $("#addNewLoc").onclick=()=>{ const v=$("#newLoc").value.trim(); if(!v) return; S.config.locations.push(v); openSettings(); };
   document.querySelectorAll("[data-delp]").forEach(b=>b.onclick=()=>{ S.config.people.splice(parseInt(b.dataset.delp,10),1); openSettings(); });
   document.querySelectorAll("[data-delloc]").forEach(b=>b.onclick=()=>{ S.config.locations.splice(parseInt(b.dataset.delloc,10),1); openSettings(); });
   document.querySelectorAll("[data-manager]").forEach(cb=>cb.onclick=()=>{ S.config.people[parseInt(cb.dataset.manager,10)].manager=cb.checked; });
-  document.querySelectorAll("[data-pin]").forEach(inp=>inp.onchange=()=>{ S.config.people[parseInt(inp.dataset.pin,10)].pin=inp.value.trim(); });
+  document.querySelectorAll("[data-pin]").forEach(inp=>inp.onchange=()=>{ S.config.people[parseInt(inp.dataset.pin,10)].pin=inp.value.trim(); refreshPinFlags(); });
   document.querySelectorAll("[data-pname]").forEach(inp=>inp.onchange=()=>{
     const i=parseInt(inp.dataset.pname,10), oldN=inp.dataset.orig, newN=inp.value.trim();
     if(!newN){ inp.value=oldN; return; }
@@ -681,6 +739,7 @@ function openSettings(){
     if(oldL!==newL) renameLocationInTasks(oldL,newL);
     inp.dataset.orig=newL; try{ store.putConfig(S.config); }catch(e){}
   });
+  refreshPinFlags();
   openScrim("#setScrim");
 }
 $("#setSave")?.addEventListener("click",async()=>{ try{await store.putConfig(S.config);}catch(e){} closeScrim("#setScrim"); render(); });
@@ -688,7 +747,7 @@ $("#setSave")?.addEventListener("click",async()=>{ try{await store.putConfig(S.c
 /* ---------- sign in ---------- */
 function showLoginErr(msg){ const e=$("#loginErr"); if(e){ e.textContent=msg; e.style.display="block"; } }
 function showLogin(){
-  const ppl=(S.config.people||[]); const noPin=ppl.filter(p=>!p.pin);
+  const ppl=(S.config.people||[]); const noPin=ppl.filter(p=>!p.pin).sort((a,b)=>byLast(a.name,b.name));
   $("#loginBody").innerHTML=`
     <p class="hint">Enter your PIN to sign in.</p>
     <label class="fld"><span>PIN</span><input type="password" id="loginPin" inputmode="numeric" autocomplete="off" placeholder="Your PIN"></label>
@@ -721,9 +780,29 @@ function finishLogin(name){
   S.currentUser=name; S.authed=true; lsSet("sb_auth",name);
   S.view=canSeeAll()?"open":"mine";
   $("#loginScrim").classList.remove("open"); document.body.style.overflow="";
-  render();
+  render(); maybeShowInstallHint();
 }
 function logout(){ S.authed=false; S.currentUser=""; try{localStorage.removeItem("sb_auth");}catch(e){} render(); showLogin(); }
+
+/* ---------- add to home screen ---------- */
+let deferredPrompt=null;
+function isStandalone(){ return (window.matchMedia&&window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone===true; }
+function isIOS(){ return /iphone|ipad|ipod/i.test(navigator.userAgent); }
+window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; maybeShowInstallHint(); });
+function maybeShowInstallHint(){
+  const b=$("#installHint"); if(!b) return;
+  if(!S.authed || isStandalone() || lsGet("sb_installhint")==="dismissed"){ b.style.display="none"; return; }
+  if(deferredPrompt){
+    b.innerHTML='Install Task Board so alerts work and it opens like an app. <button id="installGo" class="btn" style="margin-left:8px">Install</button> <button id="installX" class="btn ghost" style="margin-left:4px">Not now</button>';
+    b.style.display="block";
+    $("#installGo").onclick=async()=>{ b.style.display="none"; try{ deferredPrompt.prompt(); await deferredPrompt.userChoice; }catch(e){} deferredPrompt=null; };
+    $("#installX").onclick=()=>{ b.style.display="none"; lsSet("sb_installhint","dismissed"); };
+  } else if(isIOS()){
+    b.innerHTML='For task alerts on iPhone you must add this to your Home Screen: tap the Share icon, then “Add to Home Screen,” and open it from there. <button id="installX" class="btn ghost" style="margin-left:8px">Got it</button>';
+    b.style.display="block";
+    $("#installX").onclick=()=>{ b.style.display="none"; lsSet("sb_installhint","dismissed"); };
+  } else { b.style.display="none"; }
+}
 
 /* ---------- CSV ---------- */
 function exportCSV(){
@@ -747,6 +826,7 @@ function markPush(on){ const b=$("#pushBtn"); if(!b) return; b.classList.toggle(
 async function enablePush(){
   if(!PUSH_OK) return;
   if(!S.currentUser){ alert("Pick who you are up top first, so alerts reach the right person."); return; }
+  if(isIOS() && !isStandalone()){ alert("On iPhone, first add this to your Home Screen (Share → Add to Home Screen) and open it from there. Then alerts can be turned on."); maybeShowInstallHint(); return; }
   try{
     const reg=await navigator.serviceWorker.register("./sw.js");
     let perm=Notification.permission; if(perm!=="granted") perm=await Notification.requestPermission();
@@ -783,9 +863,9 @@ function setConn(state){ const el=$("#conn"); el.className="conn "+(state==="loc
 /* ---------- events ---------- */
 $("#logoutBtn").onclick=logout;
 $("#views").onclick=e=>{ const b=e.target.closest("[data-view]"); if(!b) return; S.view=b.dataset.view; render(); };
-$("#sortImp").onclick=()=>{ S.sort="imp"; render(); };
-$("#sortDue").onclick=()=>{ S.sort="due"; render(); };
-$("#locFilter").onchange=e=>{ S.loc=e.target.value; render(); };
+$("#sortImp").onclick=()=>{ S.sort="imp"; lsSet("sb_sort","imp"); render(); };
+$("#sortDue").onclick=()=>{ S.sort="due"; lsSet("sb_sort","due"); render(); };
+$("#locFilter").onchange=e=>{ S.loc=e.target.value; lsSet("sb_loc",S.loc); render(); };
 $("#search").oninput=e=>{ S.q=e.target.value.trim(); render(); };
 $("#newBtn").onclick=openNew;
 $("#exportBtn").onclick=exportCSV;
@@ -819,8 +899,10 @@ async function boot(){
   if(!FB){ const b=$("#cfgBanner"); b.style.display="block"; b.innerHTML='Running in local mode (saves only on this device). To share across the company, set <code>FIREBASE_URL</code> at the top of the file.'; }
   if(PUSH_OK){ $("#pushBtn").style.display=""; if(lsGet("sb_push")==="1"&&Notification.permission==="granted") markPush(true); }
   setConn(""); await refresh();
+  const savedSort=lsGet("sb_sort"); if(savedSort==="due"||savedSort==="imp") S.sort=savedSort;
+  const savedLoc=lsGet("sb_loc"); if(savedLoc && (S.config.locations||[]).includes(savedLoc)) S.loc=savedLoc;
   const saved=lsGet("sb_auth");
-  if(saved && (S.config.people||[]).some(p=>p.name===saved)){ S.currentUser=saved; S.authed=true; S.view=canSeeAll()?"open":"mine"; render(); }
+  if(saved && (S.config.people||[]).some(p=>p.name===saved)){ S.currentUser=saved; S.authed=true; S.view=canSeeAll()?"open":"mine"; render(); maybeShowInstallHint(); }
   else { showLogin(); }
   setInterval(()=>{ if(!S.modalOpen) refresh(); },6000);
   window.addEventListener("focus",()=>{ if(!S.modalOpen) refresh(); });
