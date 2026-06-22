@@ -7,7 +7,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Task Board — Steve's Sanitation</title>
-<link rel="manifest" href='data:application/manifest+json,{"name":"Task Board","short_name":"Tasks","display":"standalone","start_url":"./","background_color":"%23eef1f2","theme_color":"%231f2a30","icons":[]}'>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2064%2064%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20x%3D%222%22%20y%3D%222%22%20width%3D%2260%22%20height%3D%2260%22%20rx%3D%2214%22%20fill%3D%22%231f2a30%22%2F%3E%3Crect%20x%3D%224.5%22%20y%3D%224.5%22%20width%3D%2255%22%20height%3D%2255%22%20rx%3D%2211.5%22%20fill%3D%22none%22%20stroke%3D%22%23c19a6b%22%20stroke-width%3D%222.4%22%2F%3E%3Cg%20transform%3D%22rotate%2845%2032%2032%29%22%3E%3Crect%20x%3D%2212%22%20y%3D%2229.2%22%20width%3D%2240%22%20height%3D%225.6%22%20rx%3D%222.8%22%20fill%3D%22%23e3e9ed%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2232%22%20r%3D%227%22%20fill%3D%22%23e3e9ed%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%2232%22%20r%3D%227%22%20fill%3D%22%23e3e9ed%22%2F%3E%3Cpath%20d%3D%22M12.00%2C35.60%20L8.88%2C33.80%20L8.88%2C30.20%20L12.00%2C28.40%20L15.12%2C30.20%20L15.12%2C33.80%20Z%22%20fill%3D%22%231f2a30%22%2F%3E%3Cpath%20d%3D%22M52.00%2C35.60%20L48.88%2C33.80%20L48.88%2C30.20%20L52.00%2C28.40%20L55.12%2C30.20%20L55.12%2C33.80%20Z%22%20fill%3D%22%231f2a30%22%2F%3E%3C%2Fg%3E%3Cg%20transform%3D%22rotate%28-45%2032%2032%29%22%3E%3Crect%20x%3D%2212%22%20y%3D%2229.2%22%20width%3D%2240%22%20height%3D%225.6%22%20rx%3D%222.8%22%20fill%3D%22%23e3e9ed%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2232%22%20r%3D%227%22%20fill%3D%22%23e3e9ed%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%2232%22%20r%3D%227%22%20fill%3D%22%23e3e9ed%22%2F%3E%3Cpath%20d%3D%22M12.00%2C35.60%20L8.88%2C33.80%20L8.88%2C30.20%20L12.00%2C28.40%20L15.12%2C30.20%20L15.12%2C33.80%20Z%22%20fill%3D%22%231f2a30%22%2F%3E%3Cpath%20d%3D%22M52.00%2C35.60%20L48.88%2C33.80%20L48.88%2C30.20%20L52.00%2C28.40%20L55.12%2C30.20%20L55.12%2C33.80%20Z%22%20fill%3D%22%231f2a30%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E">
 <style>
   :root{
     --bg:#eef1f2; --ink:#1c2429; --muted:#5d6b73; --line:#d4dadd; --card:#ffffff;
@@ -30,6 +32,7 @@
   .hrow{display:flex;align-items:center;gap:10px;max-width:920px;margin:0 auto}
   .brand{font-weight:700;font-size:18px;letter-spacing:.2px;display:flex;align-items:center;gap:8px;white-space:nowrap}
   .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(31,122,77,.25)}
+  .brand .logo{display:block;flex:0 0 auto}
   .brand small{font-weight:500;color:#9fb0ad;font-size:12px}
   .hspace{flex:1}
   .who select{background:#2c393f;color:#eaf0ee;border:1px solid #3c4a51;border-radius:8px;padding:8px 10px;min-height:40px}
@@ -178,7 +181,7 @@
 
 <header>
   <div class="hrow">
-    <div class="brand"><span class="dot"></span>Task Board<small>Steve's Sanitation</small></div>
+    <div class="brand"><svg class="logo" width="26" height="26" aria-hidden="true" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="60" height="60" rx="14" fill="#1f2a30"/><rect x="4.5" y="4.5" width="55" height="55" rx="11.5" fill="none" stroke="#c19a6b" stroke-width="2.4"/><g transform="rotate(45 32 32)"><rect x="12" y="29.2" width="40" height="5.6" rx="2.8" fill="#e3e9ed"/><circle cx="12" cy="32" r="7" fill="#e3e9ed"/><circle cx="52" cy="32" r="7" fill="#e3e9ed"/><path d="M12.00,35.60 L8.88,33.80 L8.88,30.20 L12.00,28.40 L15.12,30.20 L15.12,33.80 Z" fill="#1f2a30"/><path d="M52.00,35.60 L48.88,33.80 L48.88,30.20 L52.00,28.40 L55.12,30.20 L55.12,33.80 Z" fill="#1f2a30"/></g><g transform="rotate(-45 32 32)"><rect x="12" y="29.2" width="40" height="5.6" rx="2.8" fill="#e3e9ed"/><circle cx="12" cy="32" r="7" fill="#e3e9ed"/><circle cx="52" cy="32" r="7" fill="#e3e9ed"/><path d="M12.00,35.60 L8.88,33.80 L8.88,30.20 L12.00,28.40 L15.12,30.20 L15.12,33.80 Z" fill="#1f2a30"/><path d="M52.00,35.60 L48.88,33.80 L48.88,30.20 L52.00,28.40 L55.12,30.20 L55.12,33.80 Z" fill="#1f2a30"/></g></svg>Task Board<small>Steve's Sanitation</small></div>
     <div class="hspace"></div>
     <div class="who"><span id="whoami"></span><button id="logoutBtn" class="btn" style="display:none">Log out</button></div>
   </div>

@@ -1,0 +1,12 @@
+{
+  "name": "Steve's Sanitation Task Board",
+  "short_name": "Task Board",
+  "display": "standalone",
+  "start_url": "./",
+  "background_color": "#eef1f2",
+  "theme_color": "#1f2a30",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
