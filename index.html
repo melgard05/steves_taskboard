@@ -33,6 +33,11 @@
   .brand small{font-weight:500;color:#9fb0ad;font-size:12px}
   .hspace{flex:1}
   .who select{background:#2c393f;color:#eaf0ee;border:1px solid #3c4a51;border-radius:8px;padding:8px 10px;min-height:40px}
+  .who{display:flex;align-items:center;gap:8px}
+  #whoami{color:#dfe7e4;font-weight:600;font-size:14px;white-space:nowrap}
+  #logoutBtn{background:#2c393f;color:#eaf0ee;border-color:#3c4a51;min-height:40px;padding:8px 12px}
+  .pinbox{width:84px;border:1px solid var(--line);border-radius:7px;padding:7px 8px;min-height:38px;background:var(--card);color:var(--ink)}
+  .people-row{flex-wrap:wrap}
   .conn{font-size:11px;color:#9fb0ad;display:flex;align-items:center;gap:5px}
   .conn .led{width:8px;height:8px;border-radius:50%;background:#7d8a90}
   .conn.ok .led{background:#4ade80}
@@ -167,7 +172,7 @@
   <div class="hrow">
     <div class="brand"><span class="dot"></span>Task Board<small>Steve's Sanitation</small></div>
     <div class="hspace"></div>
-    <div class="who"><label for="userSel" style="position:absolute;left:-9999px">You are</label><select id="userSel"></select></div>
+    <div class="who"><span id="whoami"></span><button id="logoutBtn" class="btn" style="display:none">Log out</button></div>
   </div>
   <div class="hrow" style="margin-top:8px;justify-content:flex-end">
     <div id="conn" class="conn"><span class="led"></span><span id="connTxt">connecting…</span></div>
@@ -198,6 +203,13 @@
     <div class="sheet-head"><h2 id="taskTitle">Task</h2><button class="x" id="taskClose" aria-label="Close">✕</button></div>
     <div class="sheet-body" id="taskBody"></div>
     <div class="sheet-foot" id="taskFoot"></div>
+  </div>
+</div>
+
+<div class="scrim" id="loginScrim" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+  <div class="sheet" style="max-width:420px">
+    <div class="sheet-head"><h2 id="loginTitle">Sign in</h2></div>
+    <div class="sheet-body" id="loginBody"></div>
   </div>
 </div>
 
@@ -273,12 +285,15 @@ const store = {
 };
 
 /* ---------- state ---------- */
-const S={ tasks:{}, config:JSON.parse(JSON.stringify(DEFAULT_CONFIG)), currentUser:lsGet("sb_user")||"", view:"open", sort:"imp", loc:"", q:"", modalOpen:false };
+const S={ tasks:{}, config:JSON.parse(JSON.stringify(DEFAULT_CONFIG)), currentUser:"", authed:false, view:"open", sort:"imp", loc:"", q:"", modalOpen:false };
 const VIEWS=[{v:"open",label:"To do"},{v:"unassigned",label:"Unassigned"},{v:"mine",label:"My tasks"},{v:"done",label:"Done"}];
 const photoCache={};
 
 function priorityOf(t){ return PRIORITIES.find(p=>p.v===t.priority)||PRIORITIES[2]; }
-function isPrivileged(){ const p=(S.config.people||[]).find(x=>x.name===S.currentUser); return !!(p&&p.canReorder); }
+function currentPerson(){ return (S.config.people||[]).find(x=>x.name===S.currentUser)||null; }
+function isManager(p){ return !!(p && (p.manager===true || (p.manager===undefined && p.canReorder===true))); }
+function canSeeAll(){ return isManager(currentPerson()); }
+function isPrivileged(){ return isManager(currentPerson()); }
 function assignedNames(t){ return (t.assignees||[]).map(a=>a.name); }
 function isUnassigned(t){ return !(t.assignees&&t.assignees.length); }
 function isMine(t){ return t.initiator===S.currentUser || assignedNames(t).includes(S.currentUser); }
@@ -305,10 +320,12 @@ function fmtTs(ts){ const d=new Date(ts); return d.toLocaleDateString(undefined,
 
 /* ---------- filter + sort ---------- */
 function visibleTasks(){
+  const mgr=canSeeAll();
   let arr=Object.values(S.tasks);
   arr = S.view==="done" ? arr.filter(t=>t.status==="done") : arr.filter(t=>t.status!=="done");
   if(S.view==="unassigned") arr=arr.filter(isUnassigned);
-  if(S.view==="mine") arr=arr.filter(isMine);
+  else if(S.view==="mine") arr=arr.filter(isMine);
+  if(!mgr && S.view!=="unassigned") arr=arr.filter(isMine);   // crew never see other people's tasks
   if(S.loc) arr=arr.filter(t=>t.location===S.loc);
   if(S.q){ const q=S.q.toLowerCase(); arr=arr.filter(t=> (t.title||"").toLowerCase().includes(q)||(t.description||"").toLowerCase().includes(q)||(t.initiator||"").toLowerCase().includes(q)||assignedNames(t).join(" ").toLowerCase().includes(q)); }
   return arr.sort(cmp);
@@ -325,25 +342,30 @@ function cmp(a,b){
   return (a.createdAt||0)-(b.createdAt||0);
 }
 function countView(v){
+  const mgr=canSeeAll();
   let arr=Object.values(S.tasks);
-  if(v==="done") return arr.filter(t=>t.status==="done").length;
+  if(v==="done"){ arr=arr.filter(t=>t.status==="done"); return (mgr?arr:arr.filter(isMine)).length; }
   arr=arr.filter(t=>t.status!=="done");
   if(v==="unassigned") return arr.filter(isUnassigned).length;
   if(v==="mine") return arr.filter(isMine).length;
-  return arr.length;
+  return (mgr?arr:arr.filter(isMine)).length;
 }
 
 /* ---------- render ---------- */
 function renderChrome(){
-  const names=(S.config.people||[]).map(p=>p.name);
-  $("#userSel").innerHTML='<option value="">Who are you?</option>'+names.map(n=>`<option value="${esc(n)}"${n===S.currentUser?" selected":""}>${esc(n)}</option>`).join("");
-  $("#views").innerHTML=VIEWS.map(v=>`<button class="tab" role="tab" data-view="${v.v}" aria-selected="${S.view===v.v}">${v.label}<span class="n">${countView(v.v)}</span></button>`).join("");
+  const mgr=canSeeAll();
+  const who=$("#whoami"); if(who) who.textContent=S.authed?(S.currentUser+(mgr?" · manager":"")):"";
+  const lo=$("#logoutBtn"); if(lo) lo.style.display=S.authed?"":"none";
+  const setBtn=$("#settingsBtn"); if(setBtn) setBtn.style.display=(S.authed&&mgr)?"":"none";
+  const allowed = mgr ? VIEWS : VIEWS.filter(v=>v.v==="mine"||v.v==="unassigned"||v.v==="done");
+  $("#views").innerHTML=allowed.map(v=>`<button class="tab" role="tab" data-view="${v.v}" aria-selected="${S.view===v.v}">${v.label}<span class="n">${countView(v.v)}</span></button>`).join("");
   $("#locFilter").innerHTML='<option value="">All locations</option>'+(S.config.locations||[]).map(l=>`<option value="${esc(l)}"${l===S.loc?" selected":""}>${esc(l)}</option>`).join("");
   $("#sortImp").setAttribute("aria-pressed",S.sort==="imp");
   $("#sortDue").setAttribute("aria-pressed",S.sort==="due");
 }
 function render(){
   renderChrome();
+  if(!S.authed){ $("#list").innerHTML=""; return; }
   const arr=visibleTasks(), host=$("#list"), priv=isPrivileged();
   if(!arr.length){ host.innerHTML=emptyState(); return; }
   const boosted=arr.filter(t=>(t.boost||0)>0), rest=arr.filter(t=>!((t.boost||0)>0));
@@ -353,7 +375,7 @@ function render(){
   } else { host.innerHTML=arr.map(t=>card(t,priv)).join(""); }
 }
 function emptyState(){
-  const map={open:["You're all caught up","No open tasks. Tap “New task” to add one."],unassigned:["Nothing in the pool","No unassigned tasks right now."],mine:[S.currentUser?"Nothing assigned to you":"Pick who you are","Set your name up top to see your tasks."],done:["No completed tasks yet","Finished tasks will collect here."]};
+  const map={open:["You're all caught up","No open tasks. Tap “New task” to add one."],unassigned:["Nothing in the pool","No unassigned tasks right now."],mine:["Nothing assigned to you","Tasks assigned to you will show up here."],done:["No completed tasks yet","Finished tasks will collect here."]};
   const m=map[S.view]||map.open; return `<div class="empty"><b>${esc(m[0])}</b>${esc(m[1])}</div>`;
 }
 function subPill(t){ const ss=t.subtasks||[]; if(!ss.length) return ""; const done=ss.filter(s=>s.done).length; return `<span class="pill sub">✔ ${done}/${ss.length}</span>`; }
@@ -614,20 +636,45 @@ function openSettings(){
   const c=S.config;
   $("#setBody").innerHTML=`
     <div class="section-h">People</div>
-    <div class="hint">Add everyone who works tasks. “Can reorder” lets that person pin tasks to the top.</div>
-    <div>${(c.people||[]).map((p,i)=>`<div class="people-row"><span class="nm">${esc(p.name)}</span><label><input type="checkbox" data-reorder="${i}" ${p.canReorder?"checked":""}> can reorder</label><button class="btn ghost danger" data-delp="${i}">Remove</button></div>`).join("")}</div>
+    <div class="hint">Give each person a PIN — that's what they sign in with. Tick <b>manager</b> for anyone who should see every task and be able to pin tasks to the top; leave it off for crew so they only see their own work. (A person with no PIN can sign in without one until you set it.)</div>
+    <div>${(c.people||[]).map((p,i)=>`<div class="people-row"><span class="nm">${esc(p.name)}</span><input type="text" inputmode="numeric" class="pinbox" data-pin="${i}" value="${esc(p.pin||"")}" placeholder="PIN" maxlength="8" autocomplete="off"><label><input type="checkbox" data-manager="${i}" ${isManager(p)?"checked":""}> manager</label><button class="btn ghost danger" data-delp="${i}">Remove</button></div>`).join("")}</div>
     <div class="addbar" style="margin-top:8px"><input type="text" id="newPerson" placeholder="Add a person"><button class="btn" id="addNewPerson">Add</button></div>
     <div class="section-h">Locations</div>
     <div>${(c.locations||[]).map((l,i)=>`<div class="people-row"><span class="nm">${esc(l)}</span><button class="btn ghost danger" data-delloc="${i}">Remove</button></div>`).join("")}</div>
     <div class="addbar" style="margin-top:8px"><input type="text" id="newLoc" placeholder="Add a location"><button class="btn" id="addNewLoc">Add</button></div>`;
-  $("#addNewPerson").onclick=()=>{ const v=$("#newPerson").value.trim(); if(!v) return; S.config.people.push({name:v,canReorder:false}); openSettings(); };
+  $("#addNewPerson").onclick=()=>{ const v=$("#newPerson").value.trim(); if(!v) return; S.config.people.push({name:v,pin:"",manager:false}); openSettings(); };
   $("#addNewLoc").onclick=()=>{ const v=$("#newLoc").value.trim(); if(!v) return; S.config.locations.push(v); openSettings(); };
   document.querySelectorAll("[data-delp]").forEach(b=>b.onclick=()=>{ S.config.people.splice(parseInt(b.dataset.delp,10),1); openSettings(); });
   document.querySelectorAll("[data-delloc]").forEach(b=>b.onclick=()=>{ S.config.locations.splice(parseInt(b.dataset.delloc,10),1); openSettings(); });
-  document.querySelectorAll("[data-reorder]").forEach(cb=>cb.onclick=()=>{ S.config.people[parseInt(cb.dataset.reorder,10)].canReorder=cb.checked; });
+  document.querySelectorAll("[data-manager]").forEach(cb=>cb.onclick=()=>{ S.config.people[parseInt(cb.dataset.manager,10)].manager=cb.checked; });
+  document.querySelectorAll("[data-pin]").forEach(inp=>inp.onchange=()=>{ S.config.people[parseInt(inp.dataset.pin,10)].pin=inp.value.trim(); });
   openScrim("#setScrim");
 }
 $("#setSave")?.addEventListener("click",async()=>{ try{await store.putConfig(S.config);}catch(e){} closeScrim("#setScrim"); render(); });
+
+/* ---------- sign in ---------- */
+function showLogin(){
+  const ppl=(S.config.people||[]);
+  $("#loginBody").innerHTML=`
+    <p class="hint">Pick your name and enter your PIN.</p>
+    <label class="fld"><span>Name</span><select id="loginName">${ppl.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("")}</select></label>
+    <label class="fld"><span>PIN</span><input type="password" id="loginPin" inputmode="numeric" autocomplete="off" placeholder="Your PIN"></label>
+    <div id="loginErr" style="color:var(--p-crit);font-size:13.5px;margin:-4px 0 12px;display:none"></div>
+    <button class="btn primary" id="loginGo" style="width:100%">Log in</button>`;
+  $("#loginScrim").classList.add("open"); document.body.style.overflow="hidden";
+  $("#loginGo").onclick=doLogin;
+  $("#loginPin").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
+}
+function doLogin(){
+  const name=$("#loginName").value, pin=$("#loginPin").value.trim();
+  const p=(S.config.people||[]).find(x=>x.name===name); if(!p) return;
+  if(p.pin && p.pin!==pin){ const e=$("#loginErr"); e.textContent="That PIN doesn't match. Try again."; e.style.display="block"; return; }
+  S.currentUser=name; S.authed=true; lsSet("sb_auth",name);
+  S.view = canSeeAll()?"open":"mine";
+  $("#loginScrim").classList.remove("open"); document.body.style.overflow="";
+  render();
+}
+function logout(){ S.authed=false; S.currentUser=""; try{localStorage.removeItem("sb_auth");}catch(e){} render(); showLogin(); }
 
 /* ---------- CSV ---------- */
 function exportCSV(){
@@ -685,7 +732,7 @@ function closeScrim(sel){ S.modalOpen=false; $(sel).classList.remove("open"); do
 function setConn(state){ const el=$("#conn"); el.className="conn "+(state==="local"?"local":(state==="ok"?"ok":"")); $("#connTxt").textContent= state==="local"?"Local mode (this device)":state==="ok"?"Synced":"Connecting…"; }
 
 /* ---------- events ---------- */
-$("#userSel").onchange=e=>{ S.currentUser=e.target.value; lsSet("sb_user",S.currentUser); render(); };
+$("#logoutBtn").onclick=logout;
 $("#views").onclick=e=>{ const b=e.target.closest("[data-view]"); if(!b) return; S.view=b.dataset.view; render(); };
 $("#sortImp").onclick=()=>{ S.sort="imp"; render(); };
 $("#sortDue").onclick=()=>{ S.sort="due"; render(); };
@@ -723,6 +770,9 @@ async function boot(){
   if(!FB){ const b=$("#cfgBanner"); b.style.display="block"; b.innerHTML='Running in local mode (saves only on this device). To share across the company, set <code>FIREBASE_URL</code> at the top of the file.'; }
   if(PUSH_OK){ $("#pushBtn").style.display=""; if(lsGet("sb_push")==="1"&&Notification.permission==="granted") markPush(true); }
   setConn(""); await refresh();
+  const saved=lsGet("sb_auth");
+  if(saved && (S.config.people||[]).some(p=>p.name===saved)){ S.currentUser=saved; S.authed=true; S.view=canSeeAll()?"open":"mine"; render(); }
+  else { showLogin(); }
   setInterval(()=>{ if(!S.modalOpen) refresh(); },6000);
   window.addEventListener("focus",()=>{ if(!S.modalOpen) refresh(); });
 }
