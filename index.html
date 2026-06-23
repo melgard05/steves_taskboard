@@ -164,6 +164,9 @@
   .addbar{display:flex;gap:8px;flex-wrap:wrap}
   .addbar select,.addbar input{flex:1;min-width:130px}
   #apFilter{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 12px;min-height:44px;background:var(--card);color:var(--ink);margin-bottom:8px}
+  .ap-top{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+  .ap-top #apFilter{flex:1;margin-bottom:0}
+  .ap-top #assignBtn{flex:0 0 auto;min-height:44px;white-space:nowrap}
   .aplist{max-height:210px;overflow:auto;border:1px solid var(--line);border-radius:9px;padding:4px;background:var(--card)}
   .apopt{display:flex;align-items:center;gap:10px;padding:10px;border-radius:7px}
   .apopt:hover{background:var(--chip)}
@@ -282,7 +285,7 @@
 <script>
 "use strict";
 
-const BUILD = 13;   // bump on each deploy for verification
+const BUILD = 14;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -684,9 +687,8 @@ function drawTaskModal(){
     ${isUnassigned(t)?'<div class="hint">No doer assigned — this sits in the Unassigned pool until someone takes it.</div>':""}
     ${(S.config.groups&&S.config.groups.length)?`<div class="grouprow"><span class="grouplbl">Add a group:</span>${S.config.groups.map((g,i)=>`<button type="button" class="grouptag" data-group="${i}">＋ ${esc(g.name)}</button>`).join("")}</div>`:""}
     <div class="assignpick">
-      <input type="text" id="apFilter" placeholder="Filter names…">
+      <div class="ap-top"><input type="text" id="apFilter" placeholder="Filter names…"><button class="btn primary" id="assignBtn">Assign</button></div>
       <div id="apList" class="aplist">${available.length?available.map(n=>`<label class="apopt"><input type="checkbox" value="${esc(n)}"><span>${esc(n)}</span></label>`).join(""):'<div class="hint" style="padding:8px">Everyone is already on this task.</div>'}</div>
-      <button class="btn primary" id="assignBtn" style="margin-top:8px;width:100%">Assign selected</button>
     </div>
     <div class="addbar" style="margin-top:10px"><input type="text" id="addExt" placeholder="Outside the company (separate several with commas)"><button class="btn" id="assignExtBtn">Assign</button></div>
 
