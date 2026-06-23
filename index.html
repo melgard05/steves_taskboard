@@ -110,6 +110,13 @@
   .grouptag{border:1px solid #c7e7d4;background:#e8f5ee;color:#1f7a4d;border-radius:999px;padding:7px 12px;min-height:38px;font-weight:700;font-size:13px}
   .grouptag:active{filter:brightness(.96)}
   .group-edit{margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+  .pill.blocked{background:#fdecec;color:#b42318;border-color:#f4cdcd}
+  .pill.handoff{background:#fff4e5;color:#9a5b00;border-color:#f6d6a8}
+  .nextline{margin-top:5px;font-size:12.5px;color:#6b7a80;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .handoff{margin-top:8px;background:var(--chip);border:1px solid var(--line);border-radius:10px;padding:10px}
+  .handoff.pending{background:#fff4e5;border-color:#f6d6a8;color:#7a4a00}
+  .handoff .hn{margin-top:4px;font-style:italic;color:#6b7a80}
+  .handoff .hbtns{display:flex;gap:8px;margin-top:8px}
   .who-line{margin-top:6px;font-size:12.5px;color:var(--muted)}
   .who-line b{color:var(--ink);font-weight:600}
   .unassigned-tag{color:var(--accent);font-weight:700}
@@ -257,7 +264,7 @@
 <script>
 "use strict";
 
-const BUILD = 9;   // bump on each deploy for verification
+const BUILD = 10;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -352,7 +359,7 @@ const store = {
 
 /* ---------- state ---------- */
 const S={ tasks:{}, config:JSON.parse(JSON.stringify(DEFAULT_CONFIG)), currentUser:"", authed:false, view:"open", sort:"imp", loc:"", proj:"", q:"", modalOpen:false };
-const VIEWS=[{v:"open",label:"To do"},{v:"unassigned",label:"Unassigned"},{v:"mine",label:"My tasks"},{v:"byperson",label:"By person"},{v:"bylocation",label:"By location"},{v:"byproject",label:"By project"},{v:"parts",label:"Waiting on parts"},{v:"done",label:"Done"}];
+const VIEWS=[{v:"open",label:"To do"},{v:"unassigned",label:"Unassigned"},{v:"mine",label:"My tasks"},{v:"byperson",label:"By person"},{v:"bylocation",label:"By location"},{v:"byproject",label:"By project"},{v:"parts",label:"Waiting on parts"},{v:"approvals",label:"Approvals"},{v:"done",label:"Done"}];
 const photoCache={};
 
 function priorityOf(t){ return PRIORITIES.find(p=>p.v===t.priority)||PRIORITIES[2]; }
@@ -388,7 +395,7 @@ function fmtTs(ts){ const d=new Date(ts); return d.toLocaleDateString(undefined,
 function fmtTime(hhmm){ if(!hhmm) return ""; const a=hhmm.split(":"); const d=new Date(); d.setHours(parseInt(a[0],10)||0,parseInt(a[1],10)||0,0,0); return d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); }
 function dueKey(t){ return (t.dueDate||"9999-12-31")+"T"+(t.dueTime||"23:59"); }
 function dueLabel(t){ if(!t.dueDate) return ""; return fmtDue(t.dueDate)+(t.dueTime?(" · "+fmtTime(t.dueTime)):""); }
-function matchQ(t){ if(!S.q) return true; const q=S.q.toLowerCase(); return (t.title||"").toLowerCase().includes(q)||(t.description||"").toLowerCase().includes(q)||(t.initiator||"").toLowerCase().includes(q)||(t.project||"").toLowerCase().includes(q)||catLabel(t.category||"").toLowerCase().includes(q)||(t.seq?("#"+seqPad(t.seq)).includes(q):false)||assignedNames(t).join(" ").toLowerCase().includes(q); }
+function matchQ(t){ if(!S.q) return true; const q=S.q.toLowerCase(); return (t.title||"").toLowerCase().includes(q)||(t.description||"").toLowerCase().includes(q)||(t.initiator||"").toLowerCase().includes(q)||(t.project||"").toLowerCase().includes(q)||catLabel(t.category||"").toLowerCase().includes(q)||(t.nextStep||"").toLowerCase().includes(q)||(t.blocker||"").toLowerCase().includes(q)||(t.seq?("#"+seqPad(t.seq)).includes(q):false)||assignedNames(t).join(" ").toLowerCase().includes(q); }
 function projectNames(){ return [...new Set(Object.values(S.tasks).map(t=>t.project).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
 function renderByPerson(){
   const host=$("#list"), priv=isPrivileged();
@@ -435,6 +442,7 @@ function visibleTasks(){
   if(S.view==="unassigned") arr=arr.filter(isUnassigned);
   else if(S.view==="mine") arr=arr.filter(isMine);
   else if(S.view==="parts") arr=arr.filter(t=>t.partsOnOrder);
+  else if(S.view==="approvals") arr=arr.filter(t=>t.handoff&&t.handoff.status==="pending");
   if(!mgr && S.view!=="unassigned") arr=arr.filter(isMine);   // crew never see other people's tasks
   if(S.loc) arr=arr.filter(t=>t.location===S.loc);
   if(S.proj) arr=arr.filter(t=>t.project===S.proj);
@@ -461,6 +469,7 @@ function countView(v){
   if(v==="bylocation") return arr.length;
   if(v==="byproject") return arr.length;
   if(v==="parts") return arr.filter(t=>t.partsOnOrder).length;
+  if(v==="approvals") return arr.filter(t=>t.handoff&&t.handoff.status==="pending").length;
   if(v==="unassigned") return arr.filter(isUnassigned).length;
   if(v==="mine") return arr.filter(isMine).length;
   return (mgr?arr:arr.filter(isMine)).length;
@@ -496,7 +505,7 @@ function render(){
   } else { host.innerHTML=arr.map(t=>card(t,priv)).join(""); }
 }
 function emptyState(){
-  const map={open:["You're all caught up","No open tasks. Tap “New task” to add one."],unassigned:["Nothing in the pool","No unassigned tasks right now."],mine:["Nothing assigned to you","Tasks assigned to you will show up here."],parts:["Nothing waiting on parts","Tasks flagged “parts on order” will collect here."],done:["No completed tasks yet","Finished tasks will collect here."]};
+  const map={open:["You're all caught up","No open tasks. Tap “New task” to add one."],unassigned:["Nothing in the pool","No unassigned tasks right now."],mine:["Nothing assigned to you","Tasks assigned to you will show up here."],parts:["Nothing waiting on parts","Tasks flagged “parts on order” will collect here."],approvals:["No approvals pending","Hand-off requests waiting on a manager show up here."],done:["No completed tasks yet","Finished tasks will collect here."]};
   const m=map[S.view]||map.open; return `<div class="empty"><b>${esc(m[0])}</b>${esc(m[1])}</div>`;
 }
 function subPill(t){ const ss=t.subtasks||[]; if(!ss.length) return ""; const done=ss.filter(s=>s.done).length; return `<span class="pill sub">✔ ${done}/${ss.length}</span>`; }
@@ -517,12 +526,15 @@ function card(t,priv){
         ${t.dueDate?`<span class="pill due ${ds}">${esc(dueLabel(t))}</span>`:""}
         <span class="pill status-${t.status}">${esc(statusLabel(t.status))}</span>
         ${t.partsOnOrder?`<span class="pill parts">Parts on order</span>`:""}
+        ${t.blocker?`<span class="pill blocked">⛔ Blocked</span>`:""}
+        ${(t.handoff&&t.handoff.status==="pending")?`<span class="pill handoff">⚑ Approval needed</span>`:""}
         ${t.recurring?`<span class="pill recur">Repeats ${esc(t.recurring)}</span>`:""}
         ${subPill(t)}
         ${(t.photos&&t.photos.length)?`<span class="pill loc">📷 ${t.photos.length}</span>`:""}
         ${(t.comments&&t.comments.length)?`<span class="pill loc">💬 ${t.comments.length}</span>`:""}
       </div>
       <div class="who-line">${who}<br><span style="color:#9aa6ac">Started by ${esc(t.initiator||"—")}</span></div>
+      ${t.nextStep?`<div class="nextline">⏭ ${esc(t.nextStep)}</div>`:""}
     </div>${reorder}</div>`;
 }
 
@@ -562,6 +574,7 @@ function openNew(){
   editingIsNew=true;
   editing={ id:uid(), title:"", description:"", location:"", priority:2, dueDate:"", dueTime:"", status:"open",
     initiator:S.currentUser||"", assignees:[], partsOnOrder:false, recurring:"", boost:0, project:"", category:"",
+    progress:"", nextStep:"", blocker:"", handoff:null,
     subtasks:[], photos:[], comments:[], activity:[], escalatedFor:"", createdAt:Date.now(), updatedAt:Date.now() };
   drawTaskModal(); openScrim("#taskScrim");
 }
@@ -618,6 +631,16 @@ function drawTaskModal(){
       <button class="btn primary" id="assignBtn" style="margin-top:8px;width:100%">Assign selected</button>
     </div>
     <div class="addbar" style="margin-top:10px"><input type="text" id="addExt" placeholder="Outside the company (separate several with commas)"><button class="btn" id="assignExtBtn">Assign</button></div>
+
+    ${!isNew?`
+    <div class="section-h">Status update &amp; hand-off</div>
+    <label class="fld"><span>Where I left off</span><textarea id="fProgress" placeholder="What's been done so far">${esc(t.progress||"")}</textarea></label>
+    <label class="fld"><span>Next step</span><input type="text" id="fNextStep" value="${esc(t.nextStep||"")}" placeholder="What needs to happen next"></label>
+    <label class="fld"><span>Anything blocking completion?</span><input type="text" id="fBlocker" value="${esc(t.blocker||"")}" placeholder="Leave blank if nothing — e.g. waiting on a part, need access"></label>
+    ${(t.handoff && t.handoff.status==="pending")
+      ? `<div class="handoff pending">⚑ <b>Hand-off requested</b> by ${esc(t.handoff.by)}${t.handoff.suggested?` → suggests <b>${esc(t.handoff.suggested)}</b>`:""}${t.handoff.note?`<div class="hn">"${esc(t.handoff.note)}"</div>`:""}${canSeeAll()?`<div class="hbtns"><button class="btn primary" id="hoApprove">Approve &amp; reassign</button><button class="btn ghost" id="hoDismiss">Dismiss</button></div>`:`<div class="hint" style="margin-top:6px">A manager has been notified to review this.</div>`}</div>`
+      : `<div class="handoff"><div class="hint">Can't finish it? Request a hand-off and a manager is notified to approve and reassign.</div><div class="cbar" style="margin-top:6px"><select id="hoWho"><option value="">Suggest who (optional)</option>${(S.config.people||[]).map(p=>`<option>${esc(p.name)}</option>`).join("")}</select></div><div class="cbar" style="margin-top:6px"><input type="text" id="hoNote" placeholder="Reason / note (optional)"><button class="btn" id="hoRequest">Request hand-off</button></div></div>`}
+    `:""}
 
     <div class="section-h">Checklist</div>
     ${ss.length?`<div class="sub-progress"><i style="width:${pct}%"></i></div>`:""}
@@ -679,6 +702,9 @@ function syncFields(){
   if(g("fParts")) editing.partsOnOrder=g("fParts").checked;
   if(g("fProject")){ const v=g("fProject").value; if(v!=="__new__") editing.project=v.trim(); }
   if(g("fCategory")) editing.category=g("fCategory").value;
+  if(g("fProgress")) editing.progress=g("fProgress").value;
+  if(g("fNextStep")) editing.nextStep=g("fNextStep").value;
+  if(g("fBlocker")) editing.blocker=g("fBlocker").value.trim();
 }
 
 /* delegated modal handlers (wired once at init) */
@@ -686,7 +712,7 @@ function taskBodyChange(e){
   const t=e.target;
   if(t.id==="photoInput"){ handlePhotoPick(t.files); return; }
   if(t.matches("[data-subtoggle]")){ toggleSub(parseInt(t.dataset.subtoggle,10)); return; }
-  if(["fTitle","fDesc","fLoc","fPrio","fDue","fDueTime","fRecur","fParts","fCategory"].includes(t.id)){ syncFields(); if(!editingIsNew) saveTask(editing); return; }
+  if(["fTitle","fDesc","fLoc","fPrio","fDue","fDueTime","fRecur","fParts","fCategory","fProgress","fNextStep","fBlocker"].includes(t.id)){ syncFields(); if(!editingIsNew) saveTask(editing); return; }
   if(t.id==="fStatus"){ onStatusChange(); return; }
 }
 function taskBodyClick(e){
@@ -696,6 +722,9 @@ function taskBodyClick(e){
   const dph=t.closest("[data-delphoto]"); if(dph){ removePhoto(dph.dataset.delphoto); return; }
   const gb=t.closest("[data-group]"); if(gb){ assignGroup(parseInt(gb.dataset.group,10)); return; }
   if(t.id==="assignBtn"){ assignChecked(); return; }
+  if(t.id==="hoRequest"){ requestHandoff(); return; }
+  if(t.id==="hoApprove"){ approveHandoff(); return; }
+  if(t.id==="hoDismiss"){ dismissHandoff(); return; }
   if(t.id==="assignExtBtn"){ addExternal(); return; }
   if(t.id==="addSub"){ addSub(); return; }
   if(t.id==="cAdd"){ addComment(); return; }
@@ -736,6 +765,33 @@ function assignGroup(i){
   names.forEach(n=>{ editing.assignees.push({name:n,external:false}); logEvent(editing,"assigned "+n+" (via "+g.name+")"); });
   if(!editingIsNew){ saveTask(editing); notifyAssignment(editing,names); }
   drawTaskModal();
+}
+function requestHandoff(){
+  syncFields();
+  const who=$("#hoWho")?$("#hoWho").value:"";
+  const note=$("#hoNote")?$("#hoNote").value.trim():"";
+  editing.handoff={by:S.currentUser||"someone", suggested:who, note, ts:Date.now(), status:"pending"};
+  logEvent(editing,"requested a hand-off"+(who?(" → suggests "+who):""));
+  saveTask(editing);
+  notifyManagers("Hand-off needs approval",(editing.title||"A task")+" — "+(S.currentUser||"someone")+" requested a hand-off"+(who?(", suggests "+who):""),editing.id);
+  drawTaskModal();
+}
+function approveHandoff(){
+  if(!editing.handoff) return;
+  syncFields();
+  const sug=editing.handoff.suggested;
+  if(sug){ editing.assignees=[{name:sug,external:false}]; logEvent(editing,"approved hand-off — reassigned to "+sug); }
+  else { logEvent(editing,"approved the hand-off request"); }
+  editing.handoff.status="approved"; editing.handoff.approvedBy=S.currentUser||"";
+  saveTask(editing);
+  if(sug) notifyAssignment(editing,[sug]);
+  drawTaskModal();
+}
+function dismissHandoff(){
+  if(!editing.handoff) return;
+  syncFields();
+  editing.handoff.status="dismissed"; logEvent(editing,"dismissed the hand-off request");
+  saveTask(editing); drawTaskModal();
 }
 function addExternal(){
   const inp=$("#addExt"); if(!inp) return; const raw=inp.value.trim(); if(!raw) return;
@@ -1040,11 +1096,11 @@ function maybeShowInstallHint(){
 /* ---------- CSV ---------- */
 function exportCSV(){
   const arr=visibleTasks();
-  const head=["#","Task","Project","Category","Location","Importance","Due date","Status","Started by","Assigned to","Parts on order","Repeats","Checklist done","Created"];
+  const head=["#","Task","Project","Category","Location","Importance","Due date","Status","Started by","Assigned to","Parts on order","Blocker","Next step","Repeats","Checklist done","Created"];
   const rows=arr.map(t=>{ const ss=t.subtasks||[]; return [
     t.seq?("#"+seqPad(t.seq)):"",t.title||"",t.project||"",catLabel(t.category),t.location||"",priorityOf(t).label,t.dueDate||"",statusLabel(t.status),t.initiator||"",
     (t.assignees||[]).map(a=>a.name+(a.external?" (outside)":"")).join("; "),
-    t.partsOnOrder?"Yes":"No",t.recurring||"", ss.length?(ss.filter(s=>s.done).length+"/"+ss.length):"",
+    t.partsOnOrder?"Yes":"No",t.blocker||"",t.nextStep||"",t.recurring||"", ss.length?(ss.filter(s=>s.done).length+"/"+ss.length):"",
     t.createdAt?new Date(t.createdAt).toLocaleDateString():"" ]; });
   const csv=[head,...rows].map(r=>r.map(c=>{ c=String(c==null?"":c); return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c; }).join(",")).join("\r\n");
   const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
@@ -1084,6 +1140,12 @@ async function notifyAssignment(task,names){
   if(!CONFIG.PUSH.WORKER_URL) return;
   const to=names.filter(n=>n!==S.currentUser); if(!to.length) return;
   try{ await fetch(CONFIG.PUSH.WORKER_URL.replace(/\/$/,"")+"/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to,title:"New task assigned",body:(task.title||"A task")+" — from "+(S.currentUser||"someone"),taskId:task.id})}); }catch(e){}
+}
+async function notifyManagers(title,body,taskId){
+  if(!CONFIG.PUSH.WORKER_URL) return;
+  const to=(S.config.people||[]).filter(isManager).map(p=>p.name).filter(n=>n!==S.currentUser);
+  if(!to.length) return;
+  try{ await fetch(CONFIG.PUSH.WORKER_URL.replace(/\/$/,"")+"/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to,title,body,taskId})}); }catch(e){}
 }
 
 /* ---------- overdue escalation (client-side, runs on load/poll) ---------- */
