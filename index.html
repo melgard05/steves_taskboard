@@ -241,7 +241,7 @@
 <script>
 "use strict";
 
-const BUILD = 3;   // bump on each deploy for verification
+const BUILD = 4;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -974,7 +974,7 @@ async function escalateOverdue(){
 }
 
 /* ---------- scrim ---------- */
-function openScrim(sel){ S.modalOpen=true; $(sel).classList.add("open"); document.body.style.overflow="hidden"; }
+function openScrim(sel){ S.modalOpen=true; const sc=$(sel); sc.classList.add("open"); document.body.style.overflow="hidden"; const b=sc.querySelector(".sheet-body"); if(b) b.scrollTop=0; }
 function closeScrim(sel){ S.modalOpen=false; $(sel).classList.remove("open"); document.body.style.overflow=""; if(sel==="#taskScrim") editing=null; }
 
 /* ---------- connection ---------- */
