@@ -105,6 +105,11 @@
   .pill.proj{background:#e8f5ee;color:#1f7a4d;border-color:#c7e7d4}
   .pill.cat{background:#eef2f4;color:#42525a;border-color:#dde4e7}
   .seqno{font-variant-numeric:tabular-nums;color:#9aa6ac;font-weight:700;margin-right:3px}
+  .grouprow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px}
+  .grouplbl{font-size:12px;color:var(--muted);font-weight:700;margin-right:2px}
+  .grouptag{border:1px solid #c7e7d4;background:#e8f5ee;color:#1f7a4d;border-radius:999px;padding:7px 12px;min-height:38px;font-weight:700;font-size:13px}
+  .grouptag:active{filter:brightness(.96)}
+  .group-edit{margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line)}
   .who-line{margin-top:6px;font-size:12.5px;color:var(--muted)}
   .who-line b{color:var(--ink);font-weight:600}
   .unassigned-tag{color:var(--accent);font-weight:700}
@@ -252,7 +257,7 @@
 <script>
 "use strict";
 
-const BUILD = 8;   // bump on each deploy for verification
+const BUILD = 9;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -285,6 +290,7 @@ const DEFAULT_CONFIG={
   people:[{name:"Casey",canReorder:true},{name:"Kelly",canReorder:true},{name:"Derick",canReorder:true}],
   locations:["Main Building","Main Yard","Transfer Building","Transfer Yard"],
   projects:[],
+  groups:[],
   templates:[],
   lastSeq:0
 };
@@ -605,6 +611,7 @@ function drawTaskModal(){
     <div class="section-h">Assigned to</div>
     <div class="assignees">${ownerChip}${doerChips||(t.initiator?"":'<span class="hint">No one yet</span>')}</div>
     ${isUnassigned(t)?'<div class="hint">No doer assigned — this sits in the Unassigned pool until someone takes it.</div>':""}
+    ${(S.config.groups&&S.config.groups.length)?`<div class="grouprow"><span class="grouplbl">Add a group:</span>${S.config.groups.map((g,i)=>`<button type="button" class="grouptag" data-group="${i}">＋ ${esc(g.name)}</button>`).join("")}</div>`:""}
     <div class="assignpick">
       <input type="text" id="apFilter" placeholder="Filter names…">
       <div id="apList" class="aplist">${available.length?available.map(n=>`<label class="apopt"><input type="checkbox" value="${esc(n)}"><span>${esc(n)}</span></label>`).join(""):'<div class="hint" style="padding:8px">Everyone is already on this task.</div>'}</div>
@@ -687,6 +694,7 @@ function taskBodyClick(e){
   const rm=t.closest("[data-rm]"); if(rm){ removeAssignee(parseInt(rm.dataset.rm,10)); return; }
   const dsub=t.closest("[data-delsub]"); if(dsub){ removeSub(parseInt(dsub.dataset.delsub,10)); return; }
   const dph=t.closest("[data-delphoto]"); if(dph){ removePhoto(dph.dataset.delphoto); return; }
+  const gb=t.closest("[data-group]"); if(gb){ assignGroup(parseInt(gb.dataset.group,10)); return; }
   if(t.id==="assignBtn"){ assignChecked(); return; }
   if(t.id==="assignExtBtn"){ addExternal(); return; }
   if(t.id==="addSub"){ addSub(); return; }
@@ -717,6 +725,15 @@ function assignChecked(){
   if(!names.length) return;
   syncFields();
   names.forEach(n=>{ editing.assignees.push({name:n,external:false}); logEvent(editing,"assigned "+n); });
+  if(!editingIsNew){ saveTask(editing); notifyAssignment(editing,names); }
+  drawTaskModal();
+}
+function assignGroup(i){
+  const g=(S.config.groups||[])[i]; if(!g) return;
+  const names=(g.members||[]).filter(n=>n!==editing.initiator && !assignedNames(editing).includes(n));
+  if(!names.length){ alert("Everyone in “"+g.name+"” is already on this task."); return; }
+  syncFields();
+  names.forEach(n=>{ editing.assignees.push({name:n,external:false}); logEvent(editing,"assigned "+n+" (via "+g.name+")"); });
   if(!editingIsNew){ saveTask(editing); notifyAssignment(editing,names); }
   drawTaskModal();
 }
@@ -856,6 +873,10 @@ function openSettings(){
     <div class="hint">Group related tasks. Tap a project to rename it (updates tasks using it); Remove to prune the list.</div>
     <div>${(c.projects||[]).map((pj,i)=>`<div class="people-row"><input class="nm-edit" data-pjname="${i}" data-orig="${esc(pj)}" value="${esc(pj)}" aria-label="Project"><button class="btn ghost danger" data-delpj="${i}">Remove</button></div>`).join("")}</div>
     <div class="addbar" style="margin-top:8px"><input type="text" id="newProj" placeholder="Add a project"><button class="btn" id="addNewProj">Add</button></div>
+    <div class="section-h">Groups</div>
+    <div class="hint">Put people in groups (a person can be in several). Then assign a whole group to a task in one tap from the assign screen.</div>
+    <div>${(c.groups||[]).map((g,gi)=>`<div class="group-edit"><div class="people-row"><input class="nm-edit" data-gname="${gi}" data-orig="${esc(g.name)}" value="${esc(g.name)}" aria-label="Group name"><button class="btn ghost danger" data-delg="${gi}">Remove</button></div><div class="aplist" style="max-height:170px;margin-top:4px">${[...(c.people||[])].sort((a,b)=>byLast(a.name,b.name)).map(p=>`<label class="apopt"><input type="checkbox" data-gm="${gi}" data-gmname="${esc(p.name)}" ${(g.members||[]).includes(p.name)?"checked":""}><span>${esc(p.name)}</span></label>`).join("")}</div></div>`).join("")}</div>
+    <div class="addbar" style="margin-top:8px"><input type="text" id="newGroup" placeholder="Add a group (e.g. Yard Crew)"><button class="btn" id="addNewGroup">Add</button></div>
     <div class="section-h">Quick-start templates</div>
     <div class="hint">One-tap presets for tasks you create often. They prefill the title, location, importance, and repeat on a new task.</div>
     <div>${(c.templates||[]).map((tp,i)=>`<div class="people-row"><span class="nm">${esc(tp.title)}${tp.location?` · ${esc(tp.location)}`:""}${tp.priority?` · ${esc((PRIORITIES.find(x=>x.v===tp.priority)||{}).label||"")}`:""}</span><button class="btn ghost danger" data-deltpl="${i}">Remove</button></div>`).join("")}</div>
@@ -889,7 +910,15 @@ function openSettings(){
     if(oldP!==newP) renameProjectInTasks(oldP,newP);
     inp.dataset.orig=newP; try{ store.putConfig(S.config); }catch(e){}
   });
-  document.querySelectorAll("[data-delp]").forEach(b=>b.onclick=()=>{ S.config.people.splice(parseInt(b.dataset.delp,10),1); openSettings(); });
+  $("#addNewGroup").onclick=()=>{ const v=$("#newGroup").value.trim(); if(!v) return; S.config.groups=S.config.groups||[]; S.config.groups.push({name:v,members:[]}); openSettings(); };
+  document.querySelectorAll("[data-delg]").forEach(b=>b.onclick=()=>{ S.config.groups.splice(parseInt(b.dataset.delg,10),1); openSettings(); });
+  document.querySelectorAll("[data-gname]").forEach(inp=>inp.onchange=()=>{ const gi=parseInt(inp.dataset.gname,10), v=inp.value.trim(); if(!v){ inp.value=inp.dataset.orig; return; } S.config.groups[gi].name=v; inp.dataset.orig=v; try{store.putConfig(S.config);}catch(e){} });
+  document.querySelectorAll("[data-gm]").forEach(cb=>cb.onclick=()=>{
+    const gi=parseInt(cb.dataset.gm,10), nm=cb.dataset.gmname, g=S.config.groups[gi]; if(!g) return; g.members=g.members||[];
+    if(cb.checked){ if(!g.members.includes(nm)) g.members.push(nm); } else { g.members=g.members.filter(x=>x!==nm); }
+    try{store.putConfig(S.config);}catch(e){}
+  });
+  document.querySelectorAll("[data-delp]").forEach(b=>b.onclick=()=>{ const idx=parseInt(b.dataset.delp,10); const rn=(S.config.people[idx]||{}).name; S.config.people.splice(idx,1); if(rn)(S.config.groups||[]).forEach(g=>{ if(g.members) g.members=g.members.filter(x=>x!==rn); }); openSettings(); });
   document.querySelectorAll("[data-delloc]").forEach(b=>b.onclick=()=>{ S.config.locations.splice(parseInt(b.dataset.delloc,10),1); openSettings(); });
   document.querySelectorAll("[data-manager]").forEach(cb=>cb.onclick=()=>{ S.config.people[parseInt(cb.dataset.manager,10)].manager=cb.checked; });
   document.querySelectorAll("[data-pin]").forEach(inp=>inp.onchange=()=>{ S.config.people[parseInt(inp.dataset.pin,10)].pin=inp.value.trim(); refreshPinFlags(); });
@@ -897,7 +926,7 @@ function openSettings(){
     const i=parseInt(inp.dataset.pname,10), oldN=inp.dataset.orig, newN=inp.value.trim();
     if(!newN){ inp.value=oldN; return; }
     S.config.people[i].name=newN;
-    if(oldN!==newN){ if(S.currentUser===oldN){ S.currentUser=newN; setAuth(newN); } renamePersonInTasks(oldN,newN); }
+    if(oldN!==newN){ if(S.currentUser===oldN){ S.currentUser=newN; setAuth(newN); } renamePersonInTasks(oldN,newN); (S.config.groups||[]).forEach(g=>{ if(g.members){ const k=g.members.indexOf(oldN); if(k>-1) g.members[k]=newN; } }); }
     inp.dataset.orig=newN; try{ store.putConfig(S.config); }catch(e){}
   });
   document.querySelectorAll("[data-lname]").forEach(inp=>inp.onchange=()=>{
