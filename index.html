@@ -96,6 +96,7 @@
   .pill.status-done{background:#e7f3ec;color:#2c7a4c;border-color:#c5e6d2}
   .pill.parts{background:#fdeede;color:#9a5b00;border-color:#f6d6a8}
   .pill.recur{background:#eef0fb;color:#4a4fa8;border-color:#d7daf3}
+  .pill.proj{background:#e8f5ee;color:#1f7a4d;border-color:#c7e7d4}
   .who-line{margin-top:6px;font-size:12.5px;color:var(--muted)}
   .who-line b{color:var(--ink);font-weight:600}
   .unassigned-tag{color:var(--accent);font-weight:700}
@@ -241,7 +242,7 @@
 <script>
 "use strict";
 
-const BUILD = 4;   // bump on each deploy for verification
+const BUILD = 5;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -330,7 +331,7 @@ const store = {
 
 /* ---------- state ---------- */
 const S={ tasks:{}, config:JSON.parse(JSON.stringify(DEFAULT_CONFIG)), currentUser:"", authed:false, view:"open", sort:"imp", loc:"", q:"", modalOpen:false };
-const VIEWS=[{v:"open",label:"To do"},{v:"unassigned",label:"Unassigned"},{v:"mine",label:"My tasks"},{v:"byperson",label:"By person"},{v:"done",label:"Done"}];
+const VIEWS=[{v:"open",label:"To do"},{v:"unassigned",label:"Unassigned"},{v:"mine",label:"My tasks"},{v:"byperson",label:"By person"},{v:"bylocation",label:"By location"},{v:"parts",label:"Waiting on parts"},{v:"done",label:"Done"}];
 const photoCache={};
 
 function priorityOf(t){ return PRIORITIES.find(p=>p.v===t.priority)||PRIORITIES[2]; }
@@ -366,7 +367,8 @@ function fmtTs(ts){ const d=new Date(ts); return d.toLocaleDateString(undefined,
 function fmtTime(hhmm){ if(!hhmm) return ""; const a=hhmm.split(":"); const d=new Date(); d.setHours(parseInt(a[0],10)||0,parseInt(a[1],10)||0,0,0); return d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); }
 function dueKey(t){ return (t.dueDate||"9999-12-31")+"T"+(t.dueTime||"23:59"); }
 function dueLabel(t){ if(!t.dueDate) return ""; return fmtDue(t.dueDate)+(t.dueTime?(" · "+fmtTime(t.dueTime)):""); }
-function matchQ(t){ if(!S.q) return true; const q=S.q.toLowerCase(); return (t.title||"").toLowerCase().includes(q)||(t.description||"").toLowerCase().includes(q)||(t.initiator||"").toLowerCase().includes(q)||assignedNames(t).join(" ").toLowerCase().includes(q); }
+function matchQ(t){ if(!S.q) return true; const q=S.q.toLowerCase(); return (t.title||"").toLowerCase().includes(q)||(t.description||"").toLowerCase().includes(q)||(t.initiator||"").toLowerCase().includes(q)||(t.project||"").toLowerCase().includes(q)||assignedNames(t).join(" ").toLowerCase().includes(q); }
+function projectNames(){ return [...new Set(Object.values(S.tasks).map(t=>t.project).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
 function renderByPerson(){
   const host=$("#list"), priv=isPrivileged();
   let arr=Object.values(S.tasks).filter(t=>t.status!=="done" && matchQ(t));
@@ -378,6 +380,17 @@ function renderByPerson(){
   if(un.length) html+=`<div class="group-label">Unassigned (${un.length})</div>`+un.map(t=>card(t,priv)).join("");
   host.innerHTML = html || `<div class="empty"><b>Nothing to show</b>No open tasks match.</div>`;
 }
+function renderByLocation(){
+  const host=$("#list"), priv=isPrivileged();
+  let arr=Object.values(S.tasks).filter(t=>t.status!=="done" && matchQ(t));
+  if(S.loc) arr=arr.filter(t=>t.location===S.loc);
+  const locs=(S.config.locations||[]);
+  let html="";
+  locs.forEach(l=>{ const ts=arr.filter(t=>t.location===l).sort(cmp); if(ts.length) html+=`<div class="group-label">${esc(l)} <span style="color:#9aa6ac">(${ts.length})</span></div>`+ts.map(t=>card(t,priv)).join(""); });
+  const none=arr.filter(t=>!t.location).sort(cmp);
+  if(none.length) html+=`<div class="group-label">No location set (${none.length})</div>`+none.map(t=>card(t,priv)).join("");
+  host.innerHTML = html || `<div class="empty"><b>Nothing to show</b>No open tasks match.</div>`;
+}
 
 /* ---------- filter + sort ---------- */
 function visibleTasks(){
@@ -386,6 +399,7 @@ function visibleTasks(){
   arr = S.view==="done" ? arr.filter(t=>t.status==="done") : arr.filter(t=>t.status!=="done");
   if(S.view==="unassigned") arr=arr.filter(isUnassigned);
   else if(S.view==="mine") arr=arr.filter(isMine);
+  else if(S.view==="parts") arr=arr.filter(t=>t.partsOnOrder);
   if(!mgr && S.view!=="unassigned") arr=arr.filter(isMine);   // crew never see other people's tasks
   if(S.loc) arr=arr.filter(t=>t.location===S.loc);
   if(S.q) arr=arr.filter(matchQ);
@@ -408,6 +422,8 @@ function countView(v){
   if(v==="done"){ arr=arr.filter(t=>t.status==="done"); return (mgr?arr:arr.filter(isMine)).length; }
   arr=arr.filter(t=>t.status!=="done");
   if(v==="byperson") return arr.length;
+  if(v==="bylocation") return arr.length;
+  if(v==="parts") return arr.filter(t=>t.partsOnOrder).length;
   if(v==="unassigned") return arr.filter(isUnassigned).length;
   if(v==="mine") return arr.filter(isMine).length;
   return (mgr?arr:arr.filter(isMine)).length;
@@ -430,6 +446,7 @@ function render(){
   renderChrome();
   if(!S.authed){ $("#list").innerHTML=""; return; }
   if(S.view==="byperson" && canSeeAll()){ renderByPerson(); return; }
+  if(S.view==="bylocation" && canSeeAll()){ renderByLocation(); return; }
   const arr=visibleTasks(), host=$("#list"), priv=isPrivileged();
   if(!arr.length){ host.innerHTML=emptyState(); return; }
   const boosted=arr.filter(t=>(t.boost||0)>0), rest=arr.filter(t=>!((t.boost||0)>0));
@@ -439,7 +456,7 @@ function render(){
   } else { host.innerHTML=arr.map(t=>card(t,priv)).join(""); }
 }
 function emptyState(){
-  const map={open:["You're all caught up","No open tasks. Tap “New task” to add one."],unassigned:["Nothing in the pool","No unassigned tasks right now."],mine:["Nothing assigned to you","Tasks assigned to you will show up here."],done:["No completed tasks yet","Finished tasks will collect here."]};
+  const map={open:["You're all caught up","No open tasks. Tap “New task” to add one."],unassigned:["Nothing in the pool","No unassigned tasks right now."],mine:["Nothing assigned to you","Tasks assigned to you will show up here."],parts:["Nothing waiting on parts","Tasks flagged “parts on order” will collect here."],done:["No completed tasks yet","Finished tasks will collect here."]};
   const m=map[S.view]||map.open; return `<div class="empty"><b>${esc(m[0])}</b>${esc(m[1])}</div>`;
 }
 function subPill(t){ const ss=t.subtasks||[]; if(!ss.length) return ""; const done=ss.filter(s=>s.done).length; return `<span class="pill sub">✔ ${done}/${ss.length}</span>`; }
@@ -455,6 +472,7 @@ function card(t,priv){
       <div class="meta">
         <span class="pill prio ${p.cls}">${p.label}</span>
         ${t.location?`<span class="pill loc">${esc(t.location)}</span>`:""}
+        ${t.project?`<span class="pill proj">📁 ${esc(t.project)}</span>`:""}
         ${t.dueDate?`<span class="pill due ${ds}">${esc(dueLabel(t))}</span>`:""}
         <span class="pill status-${t.status}">${esc(statusLabel(t.status))}</span>
         ${t.partsOnOrder?`<span class="pill parts">Parts on order</span>`:""}
@@ -496,7 +514,7 @@ function applyTemplate(ti){
 function openNew(){
   editingIsNew=true;
   editing={ id:uid(), title:"", description:"", location:"", priority:2, dueDate:"", dueTime:"", status:"open",
-    initiator:S.currentUser||"", assignees:[], partsOnOrder:false, recurring:"", boost:0,
+    initiator:S.currentUser||"", assignees:[], partsOnOrder:false, recurring:"", boost:0, project:"",
     subtasks:[], photos:[], comments:[], activity:[], escalatedFor:"", createdAt:Date.now(), updatedAt:Date.now() };
   drawTaskModal(); openScrim("#taskScrim");
 }
@@ -526,6 +544,7 @@ function drawTaskModal(){
     ${(isNew && (S.config.templates||[]).length)?`<div class="section-h" style="margin-top:0">Quick start</div><div class="tpl-row">${(S.config.templates||[]).map((tp,ti)=>`<button type="button" class="tpl-chip" data-tpl="${ti}">${esc(tp.title)}</button>`).join("")}</div>`:""}
     <label class="fld"><span>Task</span><input type="text" id="fTitle" value="${esc(t.title)}" placeholder="What needs to be done?"></label>
     <label class="fld"><span>Details</span><textarea id="fDesc" placeholder="Notes, context, anything useful">${esc(t.description)}</textarea></label>
+    <label class="fld"><span>Project (optional)</span><input type="text" id="fProject" list="projList" value="${esc(t.project||"")}" placeholder="Group this under a project"><datalist id="projList">${projectNames().map(p=>`<option value="${esc(p)}">`).join("")}</datalist></label>
 
     <div class="row2">
       <label class="fld"><span>Location</span><select id="fLoc"><option value="">— none —</option>${(S.config.locations||[]).map(l=>`<option value="${esc(l)}"${l===t.location?" selected":""}>${esc(l)}</option>`).join("")}</select></label>
@@ -597,6 +616,7 @@ function syncFields(){
   if(g("fStatus")) editing.status=g("fStatus").value;
   if(g("fRecur")) editing.recurring=g("fRecur").value;
   if(g("fParts")) editing.partsOnOrder=g("fParts").checked;
+  if(g("fProject")) editing.project=g("fProject").value.trim();
 }
 
 /* delegated modal handlers (wired once at init) */
@@ -916,9 +936,9 @@ function maybeShowInstallHint(){
 /* ---------- CSV ---------- */
 function exportCSV(){
   const arr=visibleTasks();
-  const head=["Task","Location","Importance","Due date","Status","Started by","Assigned to","Parts on order","Repeats","Checklist done","Created"];
+  const head=["Task","Project","Location","Importance","Due date","Status","Started by","Assigned to","Parts on order","Repeats","Checklist done","Created"];
   const rows=arr.map(t=>{ const ss=t.subtasks||[]; return [
-    t.title||"",t.location||"",priorityOf(t).label,t.dueDate||"",statusLabel(t.status),t.initiator||"",
+    t.title||"",t.project||"",t.location||"",priorityOf(t).label,t.dueDate||"",statusLabel(t.status),t.initiator||"",
     (t.assignees||[]).map(a=>a.name+(a.external?" (outside)":"")).join("; "),
     t.partsOnOrder?"Yes":"No",t.recurring||"", ss.length?(ss.filter(s=>s.done).length+"/"+ss.length):"",
     t.createdAt?new Date(t.createdAt).toLocaleDateString():"" ]; });
