@@ -235,7 +235,7 @@
 <script>
 "use strict";
 
-const BUILD = 1;   // bump on each deploy for verification
+const BUILD = 2;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -752,7 +752,15 @@ function openSettings(){
     <div class="seg" role="group" aria-label="Device mode" style="display:flex;width:100%;margin-bottom:8px"><button type="button" id="dmPersonal" style="flex:1" aria-pressed="${!isShared()}">Personal</button><button type="button" id="dmShared" style="flex:1" aria-pressed="${isShared()}">Shared tablet</button></div>
     <label class="fld" id="idleWrap" style="${isShared()?"":"display:none"}"><span>Sign out after idle</span><select id="idleMin">${[1,2,5,10].map(n=>`<option value="${n}"${(parseInt(lsGet("sb_idlemin"),10)||2)===n?" selected":""}>${n} minute${n>1?"s":""}</option>`).join("")}</select></label>
     <div class="hint">Personal: stays signed in and gets notifications. Shared: no notifications, signs out when idle or closed.</div>`;
-  $("#dmPersonal").onclick=()=>{ setDeviceMode("personal"); openSettings(); };
+  $("#dmPersonal").onclick=()=>{
+    if(isShared()){
+      const pin=prompt("Enter a manager PIN to take this device off Shared Tablet mode:");
+      if(pin===null) return;
+      const ok=(S.config.people||[]).some(p=>p.manager && p.pin && p.pin===pin.trim());
+      if(!ok){ alert("That isn't a valid manager PIN — staying in Shared Tablet mode."); return; }
+    }
+    setDeviceMode("personal"); openSettings();
+  };
   $("#dmShared").onclick=()=>{ setDeviceMode("shared"); openSettings(); };
   $("#idleMin").onchange=()=>{ lsSet("sb_idlemin",$("#idleMin").value); resetIdle(); };
   $("#addTpl").onclick=()=>{ const ti=$("#tplTitle").value.trim(); if(!ti) return; S.config.templates=S.config.templates||[]; S.config.templates.push({title:ti,location:$("#tplLoc").value,priority:parseInt($("#tplPrio").value,10),recurring:$("#tplRecur").value}); openSettings(); };
