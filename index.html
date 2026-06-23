@@ -62,6 +62,7 @@
   .wrap{max-width:920px;margin:0 auto;padding:0 14px}
   .views{display:flex;gap:6px;overflow-x:auto;padding:12px 0 6px;-webkit-overflow-scrolling:touch}
   .views::-webkit-scrollbar{display:none}
+  @media (min-width:760px){ .views{flex-wrap:wrap;overflow-x:visible} }
   .tab{flex:0 0 auto;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:8px 14px;min-height:40px;font-weight:600;font-size:14px}
   .tab .n{color:var(--muted);font-weight:600;margin-left:5px}
   .tab[aria-selected="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -264,7 +265,7 @@
 <script>
 "use strict";
 
-const BUILD = 10;   // bump on each deploy for verification
+const BUILD = 11;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
