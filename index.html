@@ -159,6 +159,8 @@
   .mood-dot{width:13px;height:13px;border-radius:50%}
   .mood-depressive{background:#60A5FA}.mood-baseline{background:#34D399}.mood-manic{background:#FBBF24}
   .streak-badge{font-size:13px;font-weight:700;color:#C2410C;background:#FFEDD5;border-radius:8px;padding:4px 10px;display:inline-block}
+  .sheet-h-sticky{position:sticky;top:0;background:var(--card);z-index:5;margin:0;padding:16px 20px 10px;border-bottom:1px solid var(--line)}
+  .sheet-x{position:absolute;top:12px;right:14px;width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--bg);font-size:16px;line-height:1;cursor:pointer;color:var(--ink)}
   .set-sec{padding:12px 0;border-bottom:1px solid var(--line)}
   .set-sec:last-child{border-bottom:0}
   .set-h{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:8px}
@@ -239,7 +241,7 @@
 <div class="wrap">
   <header>
     <div class="topbar">
-      <div class="brand">ADHDBP Control Panel <small id="storeNote" style="cursor:pointer">loading…</small> <span style="font-size:10px;color:var(--muted);font-weight:700;border:1px solid var(--line);border-radius:6px;padding:1px 6px">build 35</span> <span class="done-chip" id="doneChip">✓ 0 today</span></div>
+      <div class="brand">ADHDBP Control Panel <small id="storeNote" style="cursor:pointer">loading…</small> <span id="buildBadge" style="font-size:10px;color:var(--muted);font-weight:700;border:1px solid var(--line);border-radius:6px;padding:1px 6px">build 42</span> <span class="done-chip" id="doneChip">✓ 0 today</span></div>
       <div class="tools">
         <button class="btn-ghost" id="focusBtn" title="Show one task at a time">&#127919; Focus</button>
         <button class="btn-ghost" id="pickBtn" title="Pick one task for me">&#127922; Pick one</button>
@@ -524,7 +526,7 @@
 
 <div id="settings">
   <div class="sheet">
-    <h3>Settings &amp; tools <small>ADHDBP Control Panel · build 21</small></h3>
+    <h3 class="sheet-h-sticky">Settings &amp; tools <small>ADHDBP Control Panel · <span id="buildBadge2">build 42</span></small><button id="setX" class="sheet-x" title="Close">&#10005;</button></h3>
     <div class="sheet-body">
       <div class="set-sec">
         <div class="set-h">Sync</div>
@@ -538,8 +540,11 @@
       </div>
       <div class="set-sec">
         <div class="set-h">Background reminders (Phase 2)</div>
+        <div class="field"><label>Worker URL (paste once — it's saved on this phone)</label>
+          <input id="setWorkerUrl" placeholder="https://adhdbp-push.you.workers.dev" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
         <div class="set-row"><span id="setPush">…</span><button class="btn-ghost" id="pushBtn">&#128640; Enable</button></div>
         <div class="set-row"><span>Send a test notification right now.</span><button class="btn-ghost" id="pushTestBtn">&#128276; Send test</button></div>
+        <div class="set-row"><span>Trouble? Re-register this device and show the result.</span><button class="btn-ghost" id="pushDiagBtn">&#128295; Diagnose</button></div>
         <div class="set-row"><label class="check-row" style="margin:0"><input type="checkbox" id="quietOn"> Quiet hours (no overnight buzzing)</label></div>
         <div id="quietWrap" style="display:none">
           <div class="set-row"><span>From</span><select id="quietStart"></select></div>
@@ -547,6 +552,19 @@
           <div class="set-note">Reminders that come due during quiet hours wait and ping you when quiet hours end — they're not skipped.</div>
         </div>
         <div class="set-note">Get pinged even when the app is fully closed. Needs the one-time Cloudflare Worker setup.</div>
+      </div>
+      <div class="set-sec">
+        <div class="set-h">SMS backup (if a push doesn't get through)</div>
+        <div class="set-row"><label class="check-row" style="margin:0"><input type="checkbox" id="smsOn"> Text me if a reminder goes unhandled</label></div>
+        <div id="smsWrap" style="display:none">
+          <div class="field"><label>Zapier webhook URL (from Partner Texter)</label>
+            <input id="smsWebhook" placeholder="https://hooks.zapier.com/hooks/catch/…" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+          <div class="field"><label>Text to this number</label>
+            <input id="smsPhone" placeholder="+1 218 555 0123" inputmode="tel"></div>
+          <div class="field"><label>Wait this long before texting</label>
+            <select id="smsGrace"><option value="5">5 minutes</option><option value="10" selected>10 minutes</option><option value="15">15 minutes</option><option value="20">20 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option><option value="60">60 minutes</option></select></div>
+          <div class="set-note">A text goes out only if the task is still due and you haven't touched it after the wait. Acting on it in the app (snooze, progress, done) cancels the text.</div>
+        </div>
       </div>
       <div class="set-sec">
         <div class="set-h">Mood history</div>
@@ -601,15 +619,16 @@
    Leave both empty to run local-only (per device).
 =====================================================================*/
 const FB = {
-  databaseURL:"https://steves-taskboard-default-rtdb.firebaseio.com/", path:"td_k9m4x7qz2p", auth:"",
+  databaseURL:"https://adhd-bipolar-organization-default-rtdb.firebaseio.com", path:"td_k9m4x7qz2p", auth:"",
   proxyURL:"",            // e.g. https://taskdesk.<you>.workers.dev
   proxyToken:""           // must match the Worker's APP_TOKEN
 };
 /* Phase 2 — background reminders. After you deploy the Worker, paste its URL into workerURL. */
 const PUSH = {
-  workerURL:"",   // <-- paste your Worker URL here, e.g. https://adhdbp-push.<you>.workers.dev
+  workerURL:"https://adhdbp-push.melgard05.workers.dev",   // default; Settings can override (saved on the phone)
   vapidPublic:"BJwEA0ejHEo0itwa6cB__ayHPpjq9v_FqN8ECcmhyMz2p-n-du5nRyLpJzuGE7lnmguksbSAlsWANqSqa5iM4DU"
 };
+try{ const _wu=localStorage.getItem("td_workerurl"); if(_wu) PUSH.workerURL=_wu; }catch(e){}
 
 /* ---- storage ---- */
 const KEY="taskdesk_v1", MKEY="taskdesk_mode", TKEY="taskdesk_templates", LKEY="taskdesk_loc";
@@ -1168,15 +1187,31 @@ async function ensurePushSub(){
 async function sendTestPush(){
   if(!PUSH.workerURL){ toast("Add your Worker URL first."); return; }
   try{ const r=await fetch(PUSH.workerURL.replace(/\/$/,"")+"/test",{method:"POST"});
-    toast(r.ok?"Test sent — watch for a notification":"Couldn't reach the Worker"); }
-  catch(e){ toast("Couldn't reach the Worker"); } }
+    let info="";
+    try{ const j=await r.json(); info="\n\nDevices the Worker pushed to:\n"+(j.results||[]).map(x=>"• "+x.host+" → "+x.status+(x.status===201?" (accepted ✓)":x.status===0?" (send failed)":"")).join("\n")+(j.sent?"":"\n(none registered)"); }catch(e){}
+    alert((r.ok?"Test sent.":"Couldn't reach the Worker.")+info+"\n\nIf a device shows 201 but no notification appears there, the phone is accepting but not displaying it (Android setting)."); }
+  catch(e){ alert("Couldn't reach the Worker — "+(e&&e.message?e.message:"network error")); } }
 function loadQuiet(){ let q={quiet:false,start:22,end:7}; try{ const r=localStorage.getItem("td_quiet"); if(r)q=JSON.parse(r); }catch(e){} return q; }
+function loadSms(){ let s={on:false,webhook:"",phone:"",graceMin:10}; try{ const r=localStorage.getItem("td_sms"); if(r)s=JSON.parse(r); }catch(e){} return s; }
+function postConfig(){
+  if(!PUSH.workerURL) return;
+  const q=loadQuiet(), s=loadSms();
+  const cfg={ quiet:q.quiet, start:q.start, end:q.end,
+    tz:(function(){try{return Intl.DateTimeFormat().resolvedOptions().timeZone;}catch(e){return "UTC";}})(),
+    sms:{ on:s.on, webhook:s.webhook, phone:s.phone, graceMin:s.graceMin } };
+  fetch(PUSH.workerURL.replace(/\/$/,"")+"/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(cfg)}).catch(()=>{});
+}
 function saveQuiet(){
-  const q={ quiet:$("#quietOn").checked, start:parseInt($("#quietStart").value), end:parseInt($("#quietEnd").value),
-            tz:(function(){try{return Intl.DateTimeFormat().resolvedOptions().timeZone;}catch(e){return "UTC";}})() };
+  const q={ quiet:$("#quietOn").checked, start:parseInt($("#quietStart").value), end:parseInt($("#quietEnd").value) };
   try{ localStorage.setItem("td_quiet",JSON.stringify(q)); }catch(e){}
   $("#quietWrap").style.display=q.quiet?"block":"none";
-  if(PUSH.workerURL){ fetch(PUSH.workerURL.replace(/\/$/,"")+"/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(q)}).catch(()=>{}); }
+  postConfig();
+}
+function saveSms(){
+  const s={ on:$("#smsOn").checked, webhook:$("#smsWebhook").value.trim(), phone:$("#smsPhone").value.trim(), graceMin:parseInt($("#smsGrace").value)||10 };
+  try{ localStorage.setItem("td_sms",JSON.stringify(s)); }catch(e){}
+  $("#smsWrap").style.display=s.on?"block":"none";
+  postConfig();
 }
 function initQuietUI(){
   const sH=$("#quietStart"), eH=$("#quietEnd"); if(sH && !sH.options.length){
@@ -1185,6 +1220,8 @@ function initQuietUI(){
   }
   const q=loadQuiet(); $("#quietOn").checked=q.quiet; $("#quietStart").value=q.start; $("#quietEnd").value=q.end;
   $("#quietWrap").style.display=q.quiet?"block":"none";
+  const s=loadSms(); $("#smsOn").checked=s.on; $("#smsWebhook").value=s.webhook||""; $("#smsPhone").value=s.phone||""; $("#smsGrace").value=String(s.graceMin||10);
+  $("#smsWrap").style.display=s.on?"block":"none";
 }
 
 /* ---- edit modal ---- */
@@ -1500,7 +1537,8 @@ function updateSettings(){
   const dc=live().filter(t=>t.status==="done").length;
   $("#setDoneCount").textContent = dc?("You have "+dc+" completed task"+(dc>1?"s":"")+" on the board."):"No completed tasks to clear.";
   { let pushed=false; try{ pushed=localStorage.getItem("td_push")==="1"; }catch(e){}
-    $("#setPush").textContent = !PUSH.workerURL ? "Worker URL not added yet." : (pushed?"On — pings even when closed.":"Off — tap Enable."); }
+    const wf=$("#setWorkerUrl"); if(wf && document.activeElement!==wf) wf.value=PUSH.workerURL||"";
+    $("#setPush").textContent = !PUSH.workerURL ? "Add your Worker URL above first." : (pushed?"On — pings even when closed.":"Off — tap Enable."); }
   { const mh=loadMoods().slice(-30); const lbl={depressive:"Low",baseline:"Steady",manic:"High"};
     $("#setMoodHist").innerHTML = mh.length
       ? '<div class="mood-dots">'+mh.map(x=>'<span class="mood-dot mood-'+x.m+'" title="'+esc(x.d)+': '+(lbl[x.m]||x.m)+'"></span>').join("")+'</div>'
@@ -1508,10 +1546,41 @@ function updateSettings(){
 }
 $("#settingsBtn").onclick=()=>{ initQuietUI(); updateSettings(); $("#settings").classList.add("show"); };
 $("#pushBtn").onclick=enablePush;
+$("#setX").onclick=()=>$("#settings").classList.remove("show");
+$("#setWorkerUrl").onchange=()=>{ const v=$("#setWorkerUrl").value.trim().replace(/\/$/,""); PUSH.workerURL=v;
+  try{ localStorage.setItem("td_workerurl",v); }catch(e){} updateSettings();
+  if(v) toast("Worker URL saved"); };
 $("#pushTestBtn").onclick=sendTestPush;
+$("#pushDiagBtn").onclick=diagnosePush;
+async function diagnosePush(){
+  const out=[];
+  out.push("Permission: "+(("Notification" in window)?Notification.permission:"n/a"));
+  out.push("Service worker: "+(("serviceWorker" in navigator)?"yes":"no")+" · Push API: "+(("PushManager" in window)?"yes":"no"));
+  out.push("Worker URL: "+(PUSH.workerURL||"(none)"));
+  if(!PUSH.workerURL || !("serviceWorker" in navigator) || !("PushManager" in window)){ alert(out.join("\n")); return; }
+  try{
+    const perm=await Notification.requestPermission(); out.push("Permission now: "+perm);
+    if(perm!=="granted"){ alert(out.join("\n")); return; }
+    const reg=await navigator.serviceWorker.ready; out.push("Service worker: ready");
+    let sub=await reg.pushManager.getSubscription();
+    if(sub){ try{ await sub.unsubscribe(); out.push("Cleared old subscription"); }catch(e){} }
+    sub=await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:urlB64ToUint8(PUSH.vapidPublic)});
+    out.push("New subscription: created");
+    out.push("Push host: "+(new URL(sub.endpoint)).host);
+    const r=await fetch(PUSH.workerURL.replace(/\/$/,"")+"/subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(sub)});
+    out.push("Saved to Worker: HTTP "+r.status+(r.ok?" ✓":" ✗"));
+    try{ localStorage.setItem("td_push", r.ok?"1":"0"); }catch(e){}
+    out.push(r.ok?"→ This device is registered. Now tap Send test.":"→ Couldn't save to Worker (network/firewall?).");
+  }catch(e){ out.push("ERROR: "+(e&&e.message?e.message:String(e))); }
+  alert(out.join("\n")); updateSettings();
+}
 $("#quietOn").onchange=saveQuiet;
 $("#quietStart").onchange=saveQuiet;
 $("#quietEnd").onchange=saveQuiet;
+$("#smsOn").onchange=saveSms;
+$("#smsWebhook").onchange=saveSms;
+$("#smsPhone").onchange=saveSms;
+$("#smsGrace").onchange=saveSms;
 $("#setClose").onclick=()=>$("#settings").classList.remove("show");
 $("#settings").onclick=e=>{ if(e.target.id==="settings") $("#settings").classList.remove("show"); };
 $("#syncNowBtn").onclick=()=>{ if(fbEnabled()){ syncState="saving"; syncNote(); updateSettings(); syncPull(); fbPushDebounced(); setTimeout(updateSettings,1200); } else toast("Sync isn't set up."); };
@@ -1568,6 +1637,20 @@ setMode(mode); normalizeDueMs(); saveLocal(); fbPushDebounced(); checkReminders(
 if("scrollRestoration" in history) history.scrollRestoration="manual";
 window.scrollTo(0,0);
 window.addEventListener("pageshow",()=>window.scrollTo(0,0));
+{ const b=$("#buildBadge"), b2=$("#buildBadge2"); const v=b?b.textContent.trim():"build 42"; if(b2) b2.textContent=v; }
+function anyOverlayOpen(){
+  const sels=["#modal","#chase","#tpl","#complete","#recap","#settings","#qnote","#bdump","#worry","#focus"];
+  return sels.some(s=>{ const el=$(s); return el && el.classList.contains("show"); });
+}
+function closeTopOverlay(){
+  if(typeof closeModal==="function" && $("#modal") && $("#modal").classList.contains("show")){ closeModal(); return true; }
+  const order=["#qnote","#bdump","#worry","#complete","#chase","#tpl","#recap","#settings"];
+  for(const s of order){ const el=$(s); if(el && el.classList.contains("show")){ el.classList.remove("show"); return true; } }
+  if($("#focus") && $("#focus").classList.contains("show")){ if(typeof closeFocus==="function") closeFocus(); else $("#focus").classList.remove("show"); return true; }
+  return false;
+}
+history.pushState(null,"");
+window.addEventListener("popstate",()=>{ if(anyOverlayOpen()){ closeTopOverlay(); history.pushState(null,""); } });
 if("Notification" in window && Notification.permission==="granted") $("#notifyBtn").textContent="🔔 Reminders on";
 if(fbEnabled()){ syncPull(); setInterval(syncPull,15000); }
 if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
