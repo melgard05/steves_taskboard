@@ -66,6 +66,11 @@
   .filter-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#fff4e5;border:1px solid #f6d6a8;color:#7a4a00;border-radius:10px;padding:8px 12px;margin:0 0 10px;font-size:13.5px}
   .filter-bar .fb-txt{flex:1}
   .filter-bar .btn{flex:0 0 auto;min-height:36px}
+  .sugg{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--card)}
+  .sugg.done{opacity:.6}
+  .sugg .h{font-size:12.5px;color:var(--muted);margin-bottom:4px}
+  .sugg p{margin:0 0 8px;white-space:pre-wrap}
+  .sugg-actions{display:flex;gap:8px;flex-wrap:wrap}
   .tab{flex:0 0 auto;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:8px 14px;min-height:40px;font-weight:600;font-size:14px}
   .tab .n{color:var(--muted);font-weight:600;margin-left:5px}
   .tab[aria-selected="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -235,6 +240,7 @@
     <button id="pushBtn" class="btn ghost push" style="display:none">🔔 Alerts</button>
     <button id="exportBtn" class="btn ghost" title="Download current list as CSV">Export CSV</button>
     <button id="settingsBtn" class="btn ghost">⚙ People</button>
+    <button id="sugBtn" class="btn ghost" style="display:none">💡 Suggestions</button>
   </div>
   <div id="filterBar" class="filter-bar" style="display:none"></div>
 </div>
@@ -266,10 +272,17 @@
   </div>
 </div>
 
+<div class="scrim" id="sugScrim" role="dialog" aria-modal="true" aria-labelledby="sugTitle">
+  <div class="sheet">
+    <div class="sheet-head"><h2 id="sugTitle">💡 Suggestions &amp; change requests</h2><button class="x" id="sugClose" aria-label="Close">✕</button></div>
+    <div class="sheet-body" id="sugBody"></div>
+  </div>
+</div>
+
 <script>
 "use strict";
 
-const BUILD = 12;   // bump on each deploy for verification
+const BUILD = 13;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -319,7 +332,7 @@ function statusLabel(v){ return (STATUS.find(s=>s.v===v)||STATUS[0]).label; }
 /* ---------- store: Firebase REST or local ---------- */
 const FB = CONFIG.FIREBASE_URL && /^https?:\/\//.test(CONFIG.FIREBASE_URL);
 const base = FB ? CONFIG.FIREBASE_URL.replace(/\/$/,"")+"/"+CONFIG.DB_PATH : null;
-const local = { tasks:{}, config:null, photos:{} };
+const local = { tasks:{}, config:null, photos:{}, suggestions:{} };
 
 const AUTH_ON = !!(CONFIG.AUTH && CONFIG.AUTH.API_KEY && CONFIG.AUTH.EMAIL && CONFIG.AUTH.PASSWORD);
 let idToken="", refreshToken="", tokenExp=0, authFailed=false;
@@ -359,7 +372,10 @@ const store = {
   async putConfig(c){ if(FB){ await fbPut("/config",c);} else { local.config=c; persistLocal(); } },
   async getPhoto(id){ if(FB){ return await fbGet("/photos/"+id);} else { return local.photos[id]||null; } },
   async putPhoto(p){ if(FB){ await fbPut("/photos/"+p.id,p);} else { local.photos[p.id]=p; persistLocal(); } },
-  async delPhoto(id){ if(FB){ await fbDel("/photos/"+id);} else { delete local.photos[id]; persistLocal(); } }
+  async delPhoto(id){ if(FB){ await fbDel("/photos/"+id);} else { delete local.photos[id]; persistLocal(); } },
+  async loadSuggestions(){ if(FB){ return (await fbGet("/suggestions"))||{}; } return {...local.suggestions}; },
+  async putSuggestion(s){ if(FB){ await fbPut("/suggestions/"+s.id,s);} else { local.suggestions[s.id]=s; persistLocal(); } },
+  async delSuggestion(id){ if(FB){ await fbDel("/suggestions/"+id);} else { delete local.suggestions[id]; persistLocal(); } }
 };
 
 /* ---------- state ---------- */
@@ -512,6 +528,7 @@ function renderChrome(){
   const who=$("#whoami"); if(who) who.textContent=S.authed?(S.currentUser+(mgr?" · manager":"")):"";
   const lo=$("#logoutBtn"); if(lo) lo.style.display=S.authed?"":"none";
   const setBtn=$("#settingsBtn"); if(setBtn) setBtn.style.display=(S.authed&&mgr)?"":"none";
+  const sgBtn=$("#sugBtn"); if(sgBtn) sgBtn.style.display=(S.authed&&mgr)?"":"none";
   const pb=$("#pushBtn"); if(pb) pb.style.display=(S.authed && PUSH_OK && !isShared())?"":"none";
   const allowed = mgr ? VIEWS : VIEWS.filter(v=>v.v==="mine"||v.v==="unassigned"||v.v==="done");
   $("#views").innerHTML=allowed.map(v=>`<button class="tab" role="tab" data-view="${v.v}" aria-selected="${S.view===v.v}">${v.label}<span class="n">${countView(v.v)}</span></button>`).join("");
@@ -953,6 +970,45 @@ function refreshPinFlags(){
   if(sum){ sum.className="pin-summary "+(missing.length?"warn":"ok"); sum.innerHTML = missing.length ? ("⚠ No PIN set yet ("+missing.length+"): "+missing.map(esc).join(", ")+". They can sign in by name until you set one.") : "✓ Everyone has a PIN set."; }
   document.querySelectorAll("[data-pin]").forEach(inp=>inp.classList.toggle("empty",!inp.value.trim()));
 }
+async function openSuggestions(){
+  const body=$("#sugBody");
+  body.innerHTML=`<div class="hint">Leave a note about anything you'd like changed, added, or fixed in the app. These are reviewed by Kelly.</div>
+    <div class="cbar" style="margin-top:8px"><input type="text" id="sugText" placeholder="Your suggestion or change request"><button class="btn primary" id="sugSend">Send</button></div>
+    <div class="section-h">Submitted</div>
+    <div id="sugList" class="log"><div class="hint">Loading…</div></div>`;
+  openScrim("#sugScrim");
+  $("#sugSend").onclick=submitSuggestion;
+  $("#sugText").addEventListener("keydown",e=>{ if(e.key==="Enter") submitSuggestion(); });
+  renderSuggestions();
+}
+async function renderSuggestions(){
+  const list=$("#sugList"); if(!list) return;
+  let items={};
+  try{ items=await store.loadSuggestions(); }catch(e){ list.innerHTML='<div class="hint">Could not load suggestions.</div>'; return; }
+  const arr=Object.values(items||{}).sort((a,b)=>(b.ts||0)-(a.ts||0));
+  if(!arr.length){ list.innerHTML='<div class="hint">No suggestions yet.</div>'; return; }
+  list.innerHTML=arr.map(s=>`<div class="sugg ${s.status==='done'?'done':''}"><div class="h"><b>${esc(s.by||'someone')}</b> · ${esc(fmtTs(s.ts))} ${s.status==='done'?'<span class="pill cat">Done</span>':''}</div><p>${esc(s.text)}</p><div class="sugg-actions">${s.status==='done'?`<button class="btn ghost" data-sugreopen="${s.id}">Reopen</button>`:`<button class="btn ghost" data-sugdone="${s.id}">Mark done</button>`}<button class="btn ghost danger" data-sugdel="${s.id}">Delete</button></div></div>`).join("");
+  list.querySelectorAll("[data-sugdone]").forEach(b=>b.onclick=()=>setSuggestion(b.dataset.sugdone,"done"));
+  list.querySelectorAll("[data-sugreopen]").forEach(b=>b.onclick=()=>setSuggestion(b.dataset.sugreopen,"open"));
+  list.querySelectorAll("[data-sugdel]").forEach(b=>b.onclick=()=>removeSuggestion(b.dataset.sugdel));
+}
+async function submitSuggestion(){
+  const inp=$("#sugText"); if(!inp) return; const text=inp.value.trim(); if(!text) return;
+  const s={ id:uid(), text, by:S.currentUser||"someone", ts:Date.now(), status:"open" };
+  inp.value="";
+  try{ await store.putSuggestion(s); }catch(e){}
+  renderSuggestions();
+  notifyManagers("New suggestion",(s.by)+": "+text.slice(0,90),"");
+}
+async function setSuggestion(id,status){
+  try{ const items=await store.loadSuggestions(); const s=items[id]; if(!s) return; s.status=status; await store.putSuggestion(s); }catch(e){}
+  renderSuggestions();
+}
+async function removeSuggestion(id){
+  if(!confirm("Delete this suggestion?")) return;
+  try{ await store.delSuggestion(id); }catch(e){}
+  renderSuggestions();
+}
 function openSettings(){
   const c=S.config;
   (c.people||[]).sort((a,b)=>byLast(a.name,b.name));
@@ -1221,6 +1277,8 @@ $("#settingsBtn").onclick=openSettings;
 $("#pushBtn").onclick=()=>enablePush(true,true);
 $("#taskClose").onclick=()=>closeScrim("#taskScrim");
 $("#setClose").onclick=()=>closeScrim("#setScrim");
+$("#sugBtn")?.addEventListener("click",openSuggestions);
+$("#sugClose")?.addEventListener("click",()=>closeScrim("#sugScrim"));
 $("#taskScrim").onclick=e=>{ if(e.target.id==="taskScrim") closeScrim("#taskScrim"); };
 $("#setScrim").onclick=e=>{ if(e.target.id==="setScrim") closeScrim("#setScrim"); };
 $("#taskBody").addEventListener("click",taskBodyClick);
