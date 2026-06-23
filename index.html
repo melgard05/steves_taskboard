@@ -38,7 +38,8 @@
   .logoplate{background:#fff;border-radius:12px;padding:7px 14px;display:flex;align-items:center;box-shadow:0 1px 2px rgba(0,0,0,.18)}
   .brandlogo{height:34px;width:auto;display:block}
   .appname{margin-left:12px;padding-left:12px;border-left:1px solid #e6ddd0;color:#5a3a22;font-weight:800;font-size:13px;letter-spacing:.02em;white-space:nowrap}
-  .tippy{height:52px;width:auto;flex:0 0 auto;margin-left:auto;filter:drop-shadow(0 2px 3px rgba(0,0,0,.25))}
+  .tippy{height:52px;width:auto;flex:0 0 auto;margin-left:auto;filter:drop-shadow(0 2px 3px rgba(0,0,0,.25));transform-origin:bottom center;animation:tippyStroll 1.6s ease-in-out infinite}
+  @keyframes tippyStroll{0%{transform:translateY(0) rotate(-2.5deg)}25%{transform:translateY(-4px) rotate(0deg)}50%{transform:translateY(0) rotate(2.5deg)}75%{transform:translateY(-4px) rotate(0deg)}100%{transform:translateY(0) rotate(-2.5deg)}}
   .hspace{flex:1}
   .who select{background:#2c393f;color:#eaf0ee;border:1px solid #3c4a51;border-radius:8px;padding:8px 10px;min-height:40px}
   .who{display:flex;align-items:center;gap:8px}
@@ -248,7 +249,7 @@
 <script>
 "use strict";
 
-const BUILD = 6;   // bump on each deploy for verification
+const BUILD = 7;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
