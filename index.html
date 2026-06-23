@@ -63,6 +63,9 @@
   .views{display:flex;gap:6px;overflow-x:auto;padding:12px 0 6px;-webkit-overflow-scrolling:touch}
   .views::-webkit-scrollbar{display:none}
   @media (min-width:760px){ .views{flex-wrap:wrap;overflow-x:visible} }
+  .filter-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#fff4e5;border:1px solid #f6d6a8;color:#7a4a00;border-radius:10px;padding:8px 12px;margin:0 0 10px;font-size:13.5px}
+  .filter-bar .fb-txt{flex:1}
+  .filter-bar .btn{flex:0 0 auto;min-height:36px}
   .tab{flex:0 0 auto;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:8px 14px;min-height:40px;font-weight:600;font-size:14px}
   .tab .n{color:var(--muted);font-weight:600;margin-left:5px}
   .tab[aria-selected="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -233,6 +236,7 @@
     <button id="exportBtn" class="btn ghost" title="Download current list as CSV">Export CSV</button>
     <button id="settingsBtn" class="btn ghost">⚙ People</button>
   </div>
+  <div id="filterBar" class="filter-bar" style="display:none"></div>
 </div>
 
 <main class="wrap" id="list"></main>
@@ -265,7 +269,7 @@
 <script>
 "use strict";
 
-const BUILD = 11;   // bump on each deploy for verification
+const BUILD = 12;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -475,6 +479,32 @@ function countView(v){
   if(v==="mine") return arr.filter(isMine).length;
   return (mgr?arr:arr.filter(isMine)).length;
 }
+function activeFilters(){ return !!(S.loc||S.proj||S.q); }
+function scopeArrays(){
+  const mgr=canSeeAll();
+  let base=Object.values(S.tasks);
+  if(S.view==="done"){ base=base.filter(t=>t.status==="done"); if(!mgr) base=base.filter(isMine); }
+  else {
+    base=base.filter(t=>t.status!=="done");
+    if(S.view==="unassigned") base=base.filter(isUnassigned);
+    else if(S.view==="mine") base=base.filter(isMine);
+    else if(S.view==="parts") base=base.filter(t=>t.partsOnOrder);
+    else if(S.view==="approvals") base=base.filter(t=>t.handoff&&t.handoff.status==="pending");
+    if(!mgr && S.view!=="unassigned") base=base.filter(isMine);
+  }
+  let shown=base;
+  if(S.loc) shown=shown.filter(t=>t.location===S.loc);
+  if(S.proj) shown=shown.filter(t=>t.project===S.proj);
+  if(S.q) shown=shown.filter(matchQ);
+  return {total:base.length, shown:shown.length};
+}
+function clearFilters(){
+  S.loc=""; S.proj=""; S.q=""; lsSet("sb_loc","");
+  const lf=$("#locFilter"); if(lf) lf.value="";
+  const pf=$("#projFilter"); if(pf) pf.value="";
+  const se=$("#search"); if(se) se.value="";
+  render();
+}
 
 /* ---------- render ---------- */
 function renderChrome(){
@@ -490,6 +520,16 @@ function renderChrome(){
   if(pf){ if(projs.length){ pf.style.display=""; pf.innerHTML='<option value="">All projects</option>'+projs.map(p=>`<option value="${esc(p)}"${p===S.proj?" selected":""}>${esc(p)}</option>`).join(""); } else { pf.style.display="none"; S.proj=""; } }
   $("#sortImp").setAttribute("aria-pressed",S.sort==="imp");
   $("#sortDue").setAttribute("aria-pressed",S.sort==="due");
+  const fb=$("#filterBar");
+  if(fb){
+    if(activeFilters()){
+      const {total,shown}=scopeArrays();
+      const bits=[]; if(S.loc)bits.push(esc(S.loc)); if(S.proj)bits.push("📁 "+esc(S.proj)); if(S.q)bits.push("“"+esc(S.q)+"”");
+      fb.style.display="";
+      fb.innerHTML=`<span class="fb-txt">Showing <b>${shown}</b> of ${total} · filtered by ${bits.join(", ")}</span><button class="btn ghost" id="clearFilters">Clear filters</button>`;
+      const cf=$("#clearFilters"); if(cf) cf.onclick=clearFilters;
+    } else { fb.style.display="none"; fb.innerHTML=""; }
+  }
 }
 function render(){
   renderChrome();
@@ -1210,7 +1250,7 @@ async function boot(){
   if(PUSH_OK){ $("#pushBtn").style.display=""; if(lsGet("sb_push")==="1"&&Notification.permission==="granted") markPush(true); }
   setConn(""); await refresh();
   const savedSort=lsGet("sb_sort"); if(savedSort==="due"||savedSort==="imp") S.sort=savedSort;
-  const savedLoc=lsGet("sb_loc"); if(savedLoc && (S.config.locations||[]).includes(savedLoc)) S.loc=savedLoc;
+  // Location filter intentionally NOT restored on open — each session starts at "All locations" so nothing stays hidden.
   const saved=getAuth();
   if(saved && (S.config.people||[]).some(p=>p.name===saved)){ S.currentUser=saved; S.authed=true; S.view=canSeeAll()?"open":"mine"; render(); resetIdle(); if(!isShared()){ maybeShowInstallHint(); enablePush(false,false); } }
   else { showLogin(); }
