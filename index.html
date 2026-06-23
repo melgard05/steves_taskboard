@@ -186,7 +186,7 @@
     <div class="who"><span id="whoami"></span><button id="logoutBtn" class="btn" style="display:none">Log out</button></div>
   </div>
   <div class="hrow" style="margin-top:8px;justify-content:flex-end">
-    <div id="conn" class="conn"><span class="led"></span><span id="connTxt">connecting…</span></div>
+    <div id="conn" class="conn"><span class="led"></span><span id="connTxt">connecting…</span><span id="buildTag" style="margin-left:10px;color:#9fb0ad"></span></div>
   </div>
 </header>
 
@@ -234,6 +234,8 @@
 
 <script>
 "use strict";
+
+const BUILD = 1;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -789,7 +791,8 @@ function showLogin(){
     <label class="fld"><span>PIN</span><input type="password" id="loginPin" inputmode="numeric" autocomplete="off" placeholder="Your PIN"></label>
     <div id="loginErr" style="color:var(--p-crit);font-size:13.5px;margin:-4px 0 12px;display:none"></div>
     <button class="btn primary" id="loginGo" style="width:100%">Log in</button>
-    ${noPin.length?`<p class="hint" style="margin-top:16px">No PIN yet? <a href="#" id="loginByName">Sign in by name</a></p><div id="nameFallback" style="display:none;margin-top:6px"><label class="fld"><span>Name</span><select id="loginName">${noPin.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("")}</select></label><button class="btn" id="loginNameGo" style="width:100%">Sign in</button></div>`:""}`;
+    ${noPin.length?`<p class="hint" style="margin-top:16px">No PIN yet? <a href="#" id="loginByName">Sign in by name</a></p><div id="nameFallback" style="display:none;margin-top:6px"><label class="fld"><span>Name</span><select id="loginName">${noPin.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("")}</select></label><button class="btn" id="loginNameGo" style="width:100%">Sign in</button></div>`:""}
+    <p class="hint" style="margin-top:18px;text-align:center;color:#9aa6ac">build ${BUILD}</p>`;
   $("#loginScrim").classList.add("open"); document.body.style.overflow="hidden";
   $("#loginGo").onclick=doLoginPin;
   $("#loginPin").addEventListener("keydown",e=>{ if(e.key==="Enter") doLoginPin(); });
@@ -979,6 +982,7 @@ async function refresh(){
   if(!S.modalOpen) render();
 }
 async function boot(){
+  const bt=$("#buildTag"); if(bt) bt.textContent="build "+BUILD;
   if(!FB){ const b=$("#cfgBanner"); b.style.display="block"; b.innerHTML='Running in local mode (saves only on this device). To share across the company, set <code>FIREBASE_URL</code> at the top of the file.'; }
   if(PUSH_OK){ $("#pushBtn").style.display=""; if(lsGet("sb_push")==="1"&&Notification.permission==="granted") markPush(true); }
   setConn(""); await refresh();
