@@ -133,6 +133,12 @@
   .achip.owner .lock{font-size:11px;color:var(--muted);font-weight:600}
   .addbar{display:flex;gap:8px;flex-wrap:wrap}
   .addbar select,.addbar input{flex:1;min-width:130px}
+  #apFilter{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 12px;min-height:44px;background:var(--card);color:var(--ink);margin-bottom:8px}
+  .aplist{max-height:210px;overflow:auto;border:1px solid var(--line);border-radius:9px;padding:4px;background:var(--card)}
+  .apopt{display:flex;align-items:center;gap:10px;padding:10px;border-radius:7px}
+  .apopt:hover{background:var(--chip)}
+  .apopt input{width:18px;height:18px;flex:none;margin:0}
+  .apopt span{font-size:15px;color:var(--ink)}
   .self-prompt{background:#e7f3ec;border:1px solid #bfe2cb;border-radius:10px;padding:12px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .self-prompt span{flex:1;min-width:160px;font-weight:600;color:#205a38}
   .ack-bar{background:#fff4e0;border:1px solid #f3d9a6;border-radius:10px;padding:12px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -235,7 +241,7 @@
 <script>
 "use strict";
 
-const BUILD = 2;   // bump on each deploy for verification
+const BUILD = 3;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -509,6 +515,8 @@ function drawTaskModal(){
   const showAck =!isNew && isMine(t) && t.status==="open";
   const ownerChip=t.initiator?`<span class="achip owner">${esc(t.initiator)} <span class="lock">starter</span></span>`:"";
   const doerChips=(t.assignees||[]).map((a,i)=>`<span class="achip">${esc(a.name)}${a.external?" (outside)":""}<button class="rm" data-rm="${i}" aria-label="Remove">✕</button></span>`).join("");
+  const assignedSet=new Set(assignedNames(t));
+  const available=people.filter(n=>n!==t.initiator && !assignedSet.has(n));
   const ss=t.subtasks||[]; const sdone=ss.filter(s=>s.done).length; const pct=ss.length?Math.round(sdone/ss.length*100):0;
 
   $("#taskBody").innerHTML=`
@@ -536,8 +544,12 @@ function drawTaskModal(){
     <div class="section-h">Assigned to</div>
     <div class="assignees">${ownerChip}${doerChips||(t.initiator?"":'<span class="hint">No one yet</span>')}</div>
     ${isUnassigned(t)?'<div class="hint">No doer assigned — this sits in the Unassigned pool until someone takes it.</div>':""}
-    <div class="addbar"><select id="addPerson"><option value="">Add someone in the company…</option>${people.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select><button class="btn" id="addPersonBtn">Add</button></div>
-    <div class="addbar" style="margin-top:8px"><input type="text" id="addExt" placeholder="Add someone outside the company"><button class="btn" id="addExtBtn">Add</button></div>
+    <div class="assignpick">
+      <input type="text" id="apFilter" placeholder="Filter names…">
+      <div id="apList" class="aplist">${available.length?available.map(n=>`<label class="apopt"><input type="checkbox" value="${esc(n)}"><span>${esc(n)}</span></label>`).join(""):'<div class="hint" style="padding:8px">Everyone is already on this task.</div>'}</div>
+      <button class="btn primary" id="assignBtn" style="margin-top:8px;width:100%">Assign selected</button>
+    </div>
+    <div class="addbar" style="margin-top:10px"><input type="text" id="addExt" placeholder="Outside the company (separate several with commas)"><button class="btn" id="assignExtBtn">Assign</button></div>
 
     <div class="section-h">Checklist</div>
     ${ss.length?`<div class="sub-progress"><i style="width:${pct}%"></i></div>`:""}
@@ -560,6 +572,8 @@ function drawTaskModal(){
     ? `<button class="btn ghost" id="cancelTask" style="flex:1">Cancel</button><button class="btn primary" id="createTask" style="flex:2">Create task</button>`
     : `${canSeeAll()?'<button class="btn danger" id="deleteTask">Delete</button>':''}<div style="flex:1"></div><button class="btn primary" id="doneBtn">Done</button>`;
   wireFoot();
+  const apf=$("#apFilter");
+  if(apf) apf.oninput=()=>{ const q=apf.value.toLowerCase(); document.querySelectorAll("#apList .apopt").forEach(o=>{ o.style.display=o.textContent.toLowerCase().includes(q)?"":"none"; }); };
 }
 function hydratePhotos(){
   document.querySelectorAll('.thumb[data-photo]').forEach(async n=>{
@@ -598,8 +612,8 @@ function taskBodyClick(e){
   const rm=t.closest("[data-rm]"); if(rm){ removeAssignee(parseInt(rm.dataset.rm,10)); return; }
   const dsub=t.closest("[data-delsub]"); if(dsub){ removeSub(parseInt(dsub.dataset.delsub,10)); return; }
   const dph=t.closest("[data-delphoto]"); if(dph){ removePhoto(dph.dataset.delphoto); return; }
-  if(t.id==="addPersonBtn"){ addInternal(); return; }
-  if(t.id==="addExtBtn"){ addExternal(); return; }
+  if(t.id==="assignBtn"){ assignChecked(); return; }
+  if(t.id==="assignExtBtn"){ addExternal(); return; }
   if(t.id==="addSub"){ addSub(); return; }
   if(t.id==="cAdd"){ addComment(); return; }
   if(t.id==="selfYes"){ takeIt(); return; }
@@ -622,10 +636,23 @@ function addInternal(){
   if(!editingIsNew){ saveTask(editing); notifyAssignment(editing,[n]); }
   drawTaskModal();
 }
+function assignChecked(){
+  const names=[...document.querySelectorAll("#apList input:checked")].map(b=>b.value)
+    .filter(n=>n && n!==editing.initiator && !assignedNames(editing).includes(n));
+  if(!names.length) return;
+  syncFields();
+  names.forEach(n=>{ editing.assignees.push({name:n,external:false}); logEvent(editing,"assigned "+n); });
+  if(!editingIsNew){ saveTask(editing); notifyAssignment(editing,names); }
+  drawTaskModal();
+}
 function addExternal(){
-  const inp=$("#addExt"), n=inp.value.trim(); if(!n) return;
-  syncFields(); editing.assignees.push({name:n,external:true}); logEvent(editing,"assigned "+n+" (outside)");
-  if(!editingIsNew) saveTask(editing); drawTaskModal();
+  const inp=$("#addExt"); if(!inp) return; const raw=inp.value.trim(); if(!raw) return;
+  const names=raw.split(",").map(s=>s.trim()).filter(Boolean).filter(n=>!assignedNames(editing).includes(n));
+  if(!names.length){ inp.value=""; return; }
+  syncFields();
+  names.forEach(n=>{ editing.assignees.push({name:n,external:true}); logEvent(editing,"assigned "+n+" (outside)"); });
+  if(!editingIsNew) saveTask(editing);
+  drawTaskModal();
 }
 function removeAssignee(i){ syncFields(); const r=editing.assignees[i]; editing.assignees.splice(i,1); if(r) logEvent(editing,"unassigned "+r.name); if(!editingIsNew) saveTask(editing); drawTaskModal(); }
 function takeIt(){
