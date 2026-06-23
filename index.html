@@ -103,6 +103,8 @@
   .pill.parts{background:#fdeede;color:#9a5b00;border-color:#f6d6a8}
   .pill.recur{background:#eef0fb;color:#4a4fa8;border-color:#d7daf3}
   .pill.proj{background:#e8f5ee;color:#1f7a4d;border-color:#c7e7d4}
+  .pill.cat{background:#eef2f4;color:#42525a;border-color:#dde4e7}
+  .seqno{font-variant-numeric:tabular-nums;color:#9aa6ac;font-weight:700;margin-right:3px}
   .who-line{margin-top:6px;font-size:12.5px;color:var(--muted)}
   .who-line b{color:var(--ink);font-weight:600}
   .unassigned-tag{color:var(--accent);font-weight:700}
@@ -212,6 +214,7 @@
       <button id="sortDue" aria-pressed="false">By due date</button>
     </div>
     <select id="locFilter" class="filter" aria-label="Filter by location"></select>
+    <select id="projFilter" class="filter" aria-label="Filter by project" style="display:none"></select>
     <div class="search"><span aria-hidden="true">🔎</span><input id="search" type="text" placeholder="Search tasks" aria-label="Search tasks"></div>
     <button id="pushBtn" class="btn ghost push" style="display:none">🔔 Alerts</button>
     <button id="exportBtn" class="btn ghost" title="Download current list as CSV">Export CSV</button>
@@ -249,7 +252,7 @@
 <script>
 "use strict";
 
-const BUILD = 7;   // bump on each deploy for verification
+const BUILD = 8;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -275,10 +278,15 @@ const CONFIG = {
 const PRIORITIES=[{v:4,label:"Critical",cls:"p4"},{v:3,label:"High",cls:"p3"},{v:2,label:"Medium",cls:"p2"},{v:1,label:"Low",cls:"p1"}];
 const STATUS=[{v:"open",label:"Open"},{v:"acknowledged",label:"Acknowledged"},{v:"in_progress",label:"In progress"},{v:"done",label:"Done"}];
 const RECUR=[{v:"",label:"Does not repeat"},{v:"daily",label:"Repeats daily"},{v:"weekly",label:"Repeats weekly"},{v:"monthly",label:"Repeats monthly"}];
+const CATEGORIES=[{v:"",label:"—"},{v:"repair",label:"Repair"},{v:"maintenance",label:"Maintenance"},{v:"inspection",label:"Inspection"},{v:"cleaning",label:"Cleaning"},{v:"other",label:"Other"}];
+function catLabel(v){ return (CATEGORIES.find(c=>c.v===v)||{}).label||""; }
+function seqPad(n){ return String(n||0).padStart(4,"0"); }
 const DEFAULT_CONFIG={
   people:[{name:"Casey",canReorder:true},{name:"Kelly",canReorder:true},{name:"Derick",canReorder:true}],
   locations:["Main Building","Main Yard","Transfer Building","Transfer Yard"],
-  templates:[]
+  projects:[],
+  templates:[],
+  lastSeq:0
 };
 
 /* ---------- utils ---------- */
@@ -337,8 +345,8 @@ const store = {
 };
 
 /* ---------- state ---------- */
-const S={ tasks:{}, config:JSON.parse(JSON.stringify(DEFAULT_CONFIG)), currentUser:"", authed:false, view:"open", sort:"imp", loc:"", q:"", modalOpen:false };
-const VIEWS=[{v:"open",label:"To do"},{v:"unassigned",label:"Unassigned"},{v:"mine",label:"My tasks"},{v:"byperson",label:"By person"},{v:"bylocation",label:"By location"},{v:"parts",label:"Waiting on parts"},{v:"done",label:"Done"}];
+const S={ tasks:{}, config:JSON.parse(JSON.stringify(DEFAULT_CONFIG)), currentUser:"", authed:false, view:"open", sort:"imp", loc:"", proj:"", q:"", modalOpen:false };
+const VIEWS=[{v:"open",label:"To do"},{v:"unassigned",label:"Unassigned"},{v:"mine",label:"My tasks"},{v:"byperson",label:"By person"},{v:"bylocation",label:"By location"},{v:"byproject",label:"By project"},{v:"parts",label:"Waiting on parts"},{v:"done",label:"Done"}];
 const photoCache={};
 
 function priorityOf(t){ return PRIORITIES.find(p=>p.v===t.priority)||PRIORITIES[2]; }
@@ -374,12 +382,13 @@ function fmtTs(ts){ const d=new Date(ts); return d.toLocaleDateString(undefined,
 function fmtTime(hhmm){ if(!hhmm) return ""; const a=hhmm.split(":"); const d=new Date(); d.setHours(parseInt(a[0],10)||0,parseInt(a[1],10)||0,0,0); return d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); }
 function dueKey(t){ return (t.dueDate||"9999-12-31")+"T"+(t.dueTime||"23:59"); }
 function dueLabel(t){ if(!t.dueDate) return ""; return fmtDue(t.dueDate)+(t.dueTime?(" · "+fmtTime(t.dueTime)):""); }
-function matchQ(t){ if(!S.q) return true; const q=S.q.toLowerCase(); return (t.title||"").toLowerCase().includes(q)||(t.description||"").toLowerCase().includes(q)||(t.initiator||"").toLowerCase().includes(q)||(t.project||"").toLowerCase().includes(q)||assignedNames(t).join(" ").toLowerCase().includes(q); }
+function matchQ(t){ if(!S.q) return true; const q=S.q.toLowerCase(); return (t.title||"").toLowerCase().includes(q)||(t.description||"").toLowerCase().includes(q)||(t.initiator||"").toLowerCase().includes(q)||(t.project||"").toLowerCase().includes(q)||catLabel(t.category||"").toLowerCase().includes(q)||(t.seq?("#"+seqPad(t.seq)).includes(q):false)||assignedNames(t).join(" ").toLowerCase().includes(q); }
 function projectNames(){ return [...new Set(Object.values(S.tasks).map(t=>t.project).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
 function renderByPerson(){
   const host=$("#list"), priv=isPrivileged();
   let arr=Object.values(S.tasks).filter(t=>t.status!=="done" && matchQ(t));
   if(S.loc) arr=arr.filter(t=>t.location===S.loc);
+  if(S.proj) arr=arr.filter(t=>t.project===S.proj);
   const names=(S.config.people||[]).map(p=>p.name).sort(byLast);
   let html="";
   names.forEach(n=>{ const ts=arr.filter(t=>assignedNames(t).includes(n)).sort(cmp); if(ts.length) html+=`<div class="group-label">${esc(n)} <span style="color:#9aa6ac">(${ts.length})</span></div>`+ts.map(t=>card(t,priv)).join(""); });
@@ -391,11 +400,24 @@ function renderByLocation(){
   const host=$("#list"), priv=isPrivileged();
   let arr=Object.values(S.tasks).filter(t=>t.status!=="done" && matchQ(t));
   if(S.loc) arr=arr.filter(t=>t.location===S.loc);
+  if(S.proj) arr=arr.filter(t=>t.project===S.proj);
   const locs=(S.config.locations||[]);
   let html="";
   locs.forEach(l=>{ const ts=arr.filter(t=>t.location===l).sort(cmp); if(ts.length) html+=`<div class="group-label">${esc(l)} <span style="color:#9aa6ac">(${ts.length})</span></div>`+ts.map(t=>card(t,priv)).join(""); });
   const none=arr.filter(t=>!t.location).sort(cmp);
   if(none.length) html+=`<div class="group-label">No location set (${none.length})</div>`+none.map(t=>card(t,priv)).join("");
+  host.innerHTML = html || `<div class="empty"><b>Nothing to show</b>No open tasks match.</div>`;
+}
+function renderByProject(){
+  const host=$("#list"), priv=isPrivileged();
+  let arr=Object.values(S.tasks).filter(t=>t.status!=="done" && matchQ(t));
+  if(S.loc) arr=arr.filter(t=>t.location===S.loc);
+  if(S.proj) arr=arr.filter(t=>t.project===S.proj);
+  const projs=[...new Set([...(S.config.projects||[]), ...arr.map(t=>t.project).filter(Boolean)])];
+  let html="";
+  projs.forEach(pj=>{ const ts=arr.filter(t=>t.project===pj).sort(cmp); if(ts.length) html+=`<div class="group-label">📁 ${esc(pj)} <span style="color:#9aa6ac">(${ts.length})</span></div>`+ts.map(t=>card(t,priv)).join(""); });
+  const none=arr.filter(t=>!t.project).sort(cmp);
+  if(none.length) html+=`<div class="group-label">No project (${none.length})</div>`+none.map(t=>card(t,priv)).join("");
   host.innerHTML = html || `<div class="empty"><b>Nothing to show</b>No open tasks match.</div>`;
 }
 
@@ -409,6 +431,7 @@ function visibleTasks(){
   else if(S.view==="parts") arr=arr.filter(t=>t.partsOnOrder);
   if(!mgr && S.view!=="unassigned") arr=arr.filter(isMine);   // crew never see other people's tasks
   if(S.loc) arr=arr.filter(t=>t.location===S.loc);
+  if(S.proj) arr=arr.filter(t=>t.project===S.proj);
   if(S.q) arr=arr.filter(matchQ);
   return arr.sort(cmp);
 }
@@ -430,6 +453,7 @@ function countView(v){
   arr=arr.filter(t=>t.status!=="done");
   if(v==="byperson") return arr.length;
   if(v==="bylocation") return arr.length;
+  if(v==="byproject") return arr.length;
   if(v==="parts") return arr.filter(t=>t.partsOnOrder).length;
   if(v==="unassigned") return arr.filter(isUnassigned).length;
   if(v==="mine") return arr.filter(isMine).length;
@@ -446,6 +470,8 @@ function renderChrome(){
   const allowed = mgr ? VIEWS : VIEWS.filter(v=>v.v==="mine"||v.v==="unassigned"||v.v==="done");
   $("#views").innerHTML=allowed.map(v=>`<button class="tab" role="tab" data-view="${v.v}" aria-selected="${S.view===v.v}">${v.label}<span class="n">${countView(v.v)}</span></button>`).join("");
   $("#locFilter").innerHTML='<option value="">All locations</option>'+(S.config.locations||[]).map(l=>`<option value="${esc(l)}"${l===S.loc?" selected":""}>${esc(l)}</option>`).join("");
+  const pf=$("#projFilter"), projs=(S.config.projects||[]);
+  if(pf){ if(projs.length){ pf.style.display=""; pf.innerHTML='<option value="">All projects</option>'+projs.map(p=>`<option value="${esc(p)}"${p===S.proj?" selected":""}>${esc(p)}</option>`).join(""); } else { pf.style.display="none"; S.proj=""; } }
   $("#sortImp").setAttribute("aria-pressed",S.sort==="imp");
   $("#sortDue").setAttribute("aria-pressed",S.sort==="due");
 }
@@ -454,6 +480,7 @@ function render(){
   if(!S.authed){ $("#list").innerHTML=""; return; }
   if(S.view==="byperson" && canSeeAll()){ renderByPerson(); return; }
   if(S.view==="bylocation" && canSeeAll()){ renderByLocation(); return; }
+  if(S.view==="byproject" && canSeeAll()){ renderByProject(); return; }
   const arr=visibleTasks(), host=$("#list"), priv=isPrivileged();
   if(!arr.length){ host.innerHTML=emptyState(); return; }
   const boosted=arr.filter(t=>(t.boost||0)>0), rest=arr.filter(t=>!((t.boost||0)>0));
@@ -475,11 +502,12 @@ function card(t,priv){
   return `<div class="card ${p.cls} ${(t.boost||0)>0?'boosted':''} ${t.status==='done'?'done':''}" data-id="${t.id}">
     ${(t.boost||0)>0?`<span class="boost-tag">pinned</span>`:""}
     <div class="body" data-open="${t.id}">
-      <p class="title">${esc(t.title||"(untitled task)")}</p>
+      <p class="title">${t.seq?`<span class="seqno">#${seqPad(t.seq)}</span> `:""}${esc(t.title||"(untitled task)")}</p>
       <div class="meta">
         <span class="pill prio ${p.cls}">${p.label}</span>
         ${t.location?`<span class="pill loc">${esc(t.location)}</span>`:""}
         ${t.project?`<span class="pill proj">📁 ${esc(t.project)}</span>`:""}
+        ${t.category?`<span class="pill cat">${esc(catLabel(t.category))}</span>`:""}
         ${t.dueDate?`<span class="pill due ${ds}">${esc(dueLabel(t))}</span>`:""}
         <span class="pill status-${t.status}">${esc(statusLabel(t.status))}</span>
         ${t.partsOnOrder?`<span class="pill parts">Parts on order</span>`:""}
@@ -497,6 +525,12 @@ function logEvent(t,what){ (t.activity=t.activity||[]).push({ts:Date.now(),who:S
 function logSys(t,what){ (t.activity=t.activity||[]).push({ts:Date.now(),who:"System",what}); }
 
 async function saveTask(t,silent){ t.updatedAt=Date.now(); S.tasks[t.id]=t; if(!silent) render(); try{ await store.putTask(t); }catch(e){ $("#connTxt").textContent="Sync issue — retrying"; } }
+function nextSeq(){
+  let mx=S.config.lastSeq||0;
+  Object.values(S.tasks).forEach(t=>{ if(typeof t.seq==="number" && t.seq>mx) mx=t.seq; });
+  const n=mx+1; S.config.lastSeq=n; try{ store.putConfig(S.config); }catch(e){}
+  return n;
+}
 
 async function bump(id,dir){
   const t=S.tasks[id]; if(!t) return; const cur=t.boost||0;
@@ -521,7 +555,7 @@ function applyTemplate(ti){
 function openNew(){
   editingIsNew=true;
   editing={ id:uid(), title:"", description:"", location:"", priority:2, dueDate:"", dueTime:"", status:"open",
-    initiator:S.currentUser||"", assignees:[], partsOnOrder:false, recurring:"", boost:0, project:"",
+    initiator:S.currentUser||"", assignees:[], partsOnOrder:false, recurring:"", boost:0, project:"", category:"",
     subtasks:[], photos:[], comments:[], activity:[], escalatedFor:"", createdAt:Date.now(), updatedAt:Date.now() };
   drawTaskModal(); openScrim("#taskScrim");
 }
@@ -549,9 +583,10 @@ function drawTaskModal(){
     ${showAck?`<div class="ack-bar"><span>You're on this. Let the team know you've seen it.</span><button class="btn" id="ackBtn">Acknowledge</button></div>`:""}
 
     ${(isNew && (S.config.templates||[]).length)?`<div class="section-h" style="margin-top:0">Quick start</div><div class="tpl-row">${(S.config.templates||[]).map((tp,ti)=>`<button type="button" class="tpl-chip" data-tpl="${ti}">${esc(tp.title)}</button>`).join("")}</div>`:""}
-    <label class="fld"><span>Task</span><input type="text" id="fTitle" value="${esc(t.title)}" placeholder="What needs to be done?"></label>
+    <label class="fld"><span>Task</span><input type="text" id="fTitle" value="${esc(t.title)}" placeholder="What + where — e.g. Replace ballast, bay 2 — Transfer Building"></label>
     <label class="fld"><span>Details</span><textarea id="fDesc" placeholder="Notes, context, anything useful">${esc(t.description)}</textarea></label>
-    <label class="fld"><span>Project (optional)</span><input type="text" id="fProject" list="projList" value="${esc(t.project||"")}" placeholder="Group this under a project"><datalist id="projList">${projectNames().map(p=>`<option value="${esc(p)}">`).join("")}</datalist></label>
+    <label class="fld"><span>Project (optional)</span><select id="fProject"><option value="">— none —</option>${(S.config.projects||[]).map(pj=>`<option value="${esc(pj)}"${pj===(t.project||"")?" selected":""}>${esc(pj)}</option>`).join("")}${(t.project && !(S.config.projects||[]).includes(t.project))?`<option value="${esc(t.project)}" selected>${esc(t.project)}</option>`:""}<option value="__new__">＋ New project…</option></select></label>
+    <label class="fld"><span>Category</span><select id="fCategory">${CATEGORIES.map(c=>`<option value="${c.v}"${c.v===(t.category||"")?" selected":""}>${c.label}</option>`).join("")}</select></label>
 
     <div class="row2">
       <label class="fld"><span>Location</span><select id="fLoc"><option value="">— none —</option>${(S.config.locations||[]).map(l=>`<option value="${esc(l)}"${l===t.location?" selected":""}>${esc(l)}</option>`).join("")}</select></label>
@@ -600,6 +635,18 @@ function drawTaskModal(){
   wireFoot();
   const apf=$("#apFilter");
   if(apf) apf.oninput=()=>{ const q=apf.value.toLowerCase(); document.querySelectorAll("#apList .apopt").forEach(o=>{ o.style.display=o.textContent.toLowerCase().includes(q)?"":"none"; }); };
+  const fpj=$("#fProject");
+  if(fpj) fpj.onchange=()=>{
+    if(fpj.value==="__new__"){
+      syncFields();
+      const n=prompt("New project name:"); const nm=(n||"").trim();
+      if(nm){ S.config.projects=S.config.projects||[]; if(!S.config.projects.includes(nm)){ S.config.projects.push(nm); S.config.projects.sort((a,b)=>a.localeCompare(b)); try{store.putConfig(S.config);}catch(e){} } editing.project=nm; }
+      else editing.project="";
+      if(!editingIsNew) saveTask(editing);
+      drawTaskModal(); return;
+    }
+    editing.project=fpj.value; if(!editingIsNew) saveTask(editing);
+  };
 }
 function hydratePhotos(){
   document.querySelectorAll('.thumb[data-photo]').forEach(async n=>{
@@ -623,7 +670,8 @@ function syncFields(){
   if(g("fStatus")) editing.status=g("fStatus").value;
   if(g("fRecur")) editing.recurring=g("fRecur").value;
   if(g("fParts")) editing.partsOnOrder=g("fParts").checked;
-  if(g("fProject")) editing.project=g("fProject").value.trim();
+  if(g("fProject")){ const v=g("fProject").value; if(v!=="__new__") editing.project=v.trim(); }
+  if(g("fCategory")) editing.category=g("fCategory").value;
 }
 
 /* delegated modal handlers (wired once at init) */
@@ -631,7 +679,7 @@ function taskBodyChange(e){
   const t=e.target;
   if(t.id==="photoInput"){ handlePhotoPick(t.files); return; }
   if(t.matches("[data-subtoggle]")){ toggleSub(parseInt(t.dataset.subtoggle,10)); return; }
-  if(["fTitle","fDesc","fLoc","fPrio","fDue","fDueTime","fRecur","fParts"].includes(t.id)){ syncFields(); if(!editingIsNew) saveTask(editing); return; }
+  if(["fTitle","fDesc","fLoc","fPrio","fDue","fDueTime","fRecur","fParts","fCategory"].includes(t.id)){ syncFields(); if(!editingIsNew) saveTask(editing); return; }
   if(t.id==="fStatus"){ onStatusChange(); return; }
 }
 function taskBodyClick(e){
@@ -719,6 +767,7 @@ function commitNew(){
   if(!S.currentUser){ alert("Pick who you are up top first, so the task has a starter."); return; }
   if(!editing.title){ const ti=$("#fTitle"); ti.focus(); ti.style.borderColor="var(--p-crit)"; return; }
   editing.initiator=S.currentUser;
+  if(!editing.seq) editing.seq=nextSeq();
   if(!(editing.activity||[]).some(e=>e.what==="created the task")) logEvent(editing,"created the task");
   saveTask(editing);
   const newInternal=(editing.assignees||[]).filter(a=>!a.external).map(a=>a.name);
@@ -778,6 +827,12 @@ function renameLocationInTasks(oldL,newL){
   if(S.loc===oldL) S.loc=newL;
   if(changed) render();
 }
+function renameProjectInTasks(oldP,newP){
+  let changed=0;
+  for(const t of Object.values(S.tasks)){ if(t.project===oldP){ t.project=newP; store.putTask(t,true); changed++; } }
+  if(S.proj===oldP) S.proj=newP;
+  if(changed) render();
+}
 function refreshPinFlags(){
   const missing=(S.config.people||[]).filter(p=>!p.pin).map(p=>p.name).sort(byLast);
   const sum=$("#pinSummary");
@@ -797,6 +852,10 @@ function openSettings(){
     <div class="hint">Tap a location to rename it.</div>
     <div>${(c.locations||[]).map((l,i)=>`<div class="people-row"><input class="nm-edit" data-lname="${i}" data-orig="${esc(l)}" value="${esc(l)}" aria-label="Location"><button class="btn ghost danger" data-delloc="${i}">Remove</button></div>`).join("")}</div>
     <div class="addbar" style="margin-top:8px"><input type="text" id="newLoc" placeholder="Add a location"><button class="btn" id="addNewLoc">Add</button></div>
+    <div class="section-h">Projects</div>
+    <div class="hint">Group related tasks. Tap a project to rename it (updates tasks using it); Remove to prune the list.</div>
+    <div>${(c.projects||[]).map((pj,i)=>`<div class="people-row"><input class="nm-edit" data-pjname="${i}" data-orig="${esc(pj)}" value="${esc(pj)}" aria-label="Project"><button class="btn ghost danger" data-delpj="${i}">Remove</button></div>`).join("")}</div>
+    <div class="addbar" style="margin-top:8px"><input type="text" id="newProj" placeholder="Add a project"><button class="btn" id="addNewProj">Add</button></div>
     <div class="section-h">Quick-start templates</div>
     <div class="hint">One-tap presets for tasks you create often. They prefill the title, location, importance, and repeat on a new task.</div>
     <div>${(c.templates||[]).map((tp,i)=>`<div class="people-row"><span class="nm">${esc(tp.title)}${tp.location?` · ${esc(tp.location)}`:""}${tp.priority?` · ${esc((PRIORITIES.find(x=>x.v===tp.priority)||{}).label||"")}`:""}</span><button class="btn ghost danger" data-deltpl="${i}">Remove</button></div>`).join("")}</div>
@@ -821,6 +880,15 @@ function openSettings(){
   document.querySelectorAll("[data-deltpl]").forEach(b=>b.onclick=()=>{ S.config.templates.splice(parseInt(b.dataset.deltpl,10),1); openSettings(); });
   $("#addNewPerson").onclick=()=>{ const v=$("#newPerson").value.trim(); if(!v) return; S.config.people.push({name:v,pin:"",manager:false}); openSettings(); };
   $("#addNewLoc").onclick=()=>{ const v=$("#newLoc").value.trim(); if(!v) return; S.config.locations.push(v); openSettings(); };
+  $("#addNewProj").onclick=()=>{ const v=$("#newProj").value.trim(); if(!v) return; S.config.projects=S.config.projects||[]; if(!S.config.projects.includes(v)){ S.config.projects.push(v); S.config.projects.sort((a,b)=>a.localeCompare(b)); } openSettings(); };
+  document.querySelectorAll("[data-delpj]").forEach(b=>b.onclick=()=>{ S.config.projects.splice(parseInt(b.dataset.delpj,10),1); openSettings(); });
+  document.querySelectorAll("[data-pjname]").forEach(inp=>inp.onchange=()=>{
+    const i=parseInt(inp.dataset.pjname,10), oldP=inp.dataset.orig, newP=inp.value.trim();
+    if(!newP){ inp.value=oldP; return; }
+    S.config.projects[i]=newP;
+    if(oldP!==newP) renameProjectInTasks(oldP,newP);
+    inp.dataset.orig=newP; try{ store.putConfig(S.config); }catch(e){}
+  });
   document.querySelectorAll("[data-delp]").forEach(b=>b.onclick=()=>{ S.config.people.splice(parseInt(b.dataset.delp,10),1); openSettings(); });
   document.querySelectorAll("[data-delloc]").forEach(b=>b.onclick=()=>{ S.config.locations.splice(parseInt(b.dataset.delloc,10),1); openSettings(); });
   document.querySelectorAll("[data-manager]").forEach(cb=>cb.onclick=()=>{ S.config.people[parseInt(cb.dataset.manager,10)].manager=cb.checked; });
@@ -943,9 +1011,9 @@ function maybeShowInstallHint(){
 /* ---------- CSV ---------- */
 function exportCSV(){
   const arr=visibleTasks();
-  const head=["Task","Project","Location","Importance","Due date","Status","Started by","Assigned to","Parts on order","Repeats","Checklist done","Created"];
+  const head=["#","Task","Project","Category","Location","Importance","Due date","Status","Started by","Assigned to","Parts on order","Repeats","Checklist done","Created"];
   const rows=arr.map(t=>{ const ss=t.subtasks||[]; return [
-    t.title||"",t.project||"",t.location||"",priorityOf(t).label,t.dueDate||"",statusLabel(t.status),t.initiator||"",
+    t.seq?("#"+seqPad(t.seq)):"",t.title||"",t.project||"",catLabel(t.category),t.location||"",priorityOf(t).label,t.dueDate||"",statusLabel(t.status),t.initiator||"",
     (t.assignees||[]).map(a=>a.name+(a.external?" (outside)":"")).join("; "),
     t.partsOnOrder?"Yes":"No",t.recurring||"", ss.length?(ss.filter(s=>s.done).length+"/"+ss.length):"",
     t.createdAt?new Date(t.createdAt).toLocaleDateString():"" ]; });
@@ -1013,6 +1081,7 @@ $("#views").onclick=e=>{ const b=e.target.closest("[data-view]"); if(!b) return;
 $("#sortImp").onclick=()=>{ S.sort="imp"; lsSet("sb_sort","imp"); render(); };
 $("#sortDue").onclick=()=>{ S.sort="due"; lsSet("sb_sort","due"); render(); };
 $("#locFilter").onchange=e=>{ S.loc=e.target.value; lsSet("sb_loc",S.loc); render(); };
+$("#projFilter").onchange=e=>{ S.proj=e.target.value; render(); };
 $("#search").oninput=e=>{ S.q=e.target.value.trim(); render(); };
 $("#newBtn").onclick=openNew;
 $("#exportBtn").onclick=exportCSV;
