@@ -73,6 +73,15 @@
   .sugg .h{font-size:12.5px;color:var(--muted);margin-bottom:4px}
   .sugg p{margin:0 0 8px;white-space:pre-wrap}
   .sugg-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .parent-link{background:var(--chip);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px;cursor:pointer;font-weight:600;color:#5a3a22}
+  .subtask-list{display:flex;flex-direction:column;gap:6px;margin-bottom:6px}
+  .subtask-row{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:8px;padding:9px 10px;cursor:pointer;background:var(--card)}
+  .subtask-row:hover{background:var(--chip)}
+  .subtask-row .st-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .childlist{margin:2px 0 10px 16px;border-left:2px solid var(--line);padding-left:10px;display:flex;flex-direction:column;gap:2px}
+  .childrow{padding:7px 6px;font-size:14px;color:#33424a;cursor:pointer;border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .childrow:hover{background:var(--chip)}
+  .childrow.done{text-decoration:line-through;color:#9aa6ac}
   .tab{flex:0 0 auto;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:8px 14px;min-height:40px;font-weight:600;font-size:14px}
   .tab .n{color:var(--muted);font-weight:600;margin-left:5px}
   .tab[aria-selected="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -288,7 +297,7 @@
 <script>
 "use strict";
 
-const BUILD = 16;   // bump on each deploy for verification
+const BUILD = 18;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -429,6 +438,7 @@ function renderByPerson(){
   let arr=Object.values(S.tasks).filter(t=>t.status!=="done" && matchQ(t));
   if(S.loc) arr=arr.filter(t=>t.location===S.loc);
   if(S.proj) arr=arr.filter(t=>t.project===S.proj);
+  if(!S.q) arr=arr.filter(t=>!(t.parentId && S.tasks[t.parentId]));   // children nest under their parent
   const names=(S.config.people||[]).map(p=>p.name).sort(byLast);
   let html="";
   names.forEach(n=>{ const ts=arr.filter(t=>assignedNames(t).includes(n)).sort(cmp); if(ts.length) html+=`<div class="group-label">${esc(n)} <span style="color:#9aa6ac">(${ts.length})</span></div>`+ts.map(t=>card(t,priv)).join(""); });
@@ -441,6 +451,7 @@ function renderByLocation(){
   let arr=Object.values(S.tasks).filter(t=>t.status!=="done" && matchQ(t));
   if(S.loc) arr=arr.filter(t=>t.location===S.loc);
   if(S.proj) arr=arr.filter(t=>t.project===S.proj);
+  if(!S.q) arr=arr.filter(t=>!(t.parentId && S.tasks[t.parentId]));   // children nest under their parent
   const locs=(S.config.locations||[]);
   let html="";
   locs.forEach(l=>{ const ts=arr.filter(t=>t.location===l).sort(cmp); if(ts.length) html+=`<div class="group-label">${esc(l)} <span style="color:#9aa6ac">(${ts.length})</span></div>`+ts.map(t=>card(t,priv)).join(""); });
@@ -453,6 +464,7 @@ function renderByProject(){
   let arr=Object.values(S.tasks).filter(t=>t.status!=="done" && matchQ(t));
   if(S.loc) arr=arr.filter(t=>t.location===S.loc);
   if(S.proj) arr=arr.filter(t=>t.project===S.proj);
+  if(!S.q) arr=arr.filter(t=>!(t.parentId && S.tasks[t.parentId]));   // children nest under their parent
   const projs=[...new Set([...(S.config.projects||[]), ...arr.map(t=>t.project).filter(Boolean)])];
   let html="";
   projs.forEach(pj=>{ const ts=arr.filter(t=>t.project===pj).sort(cmp); if(ts.length) html+=`<div class="group-label">📁 ${esc(pj)} <span style="color:#9aa6ac">(${ts.length})</span></div>`+ts.map(t=>card(t,priv)).join(""); });
@@ -473,6 +485,7 @@ function visibleTasks(){
   if(!mgr && S.view!=="unassigned") arr=arr.filter(isMine);   // crew never see other people's tasks
   if(S.loc) arr=arr.filter(t=>t.location===S.loc);
   if(S.proj) arr=arr.filter(t=>t.project===S.proj);
+  if(!S.q) arr=arr.filter(t=>!(t.parentId && S.tasks[t.parentId]));   // children nest under their parent
   if(S.q) arr=arr.filter(matchQ);
   return arr.sort(cmp);
 }
@@ -573,6 +586,11 @@ function emptyState(){
   const m=map[S.view]||map.open; return `<div class="empty"><b>${esc(m[0])}</b>${esc(m[1])}</div>`;
 }
 function subPill(t){ const ss=t.subtasks||[]; if(!ss.length) return ""; const done=ss.filter(s=>s.done).length; return `<span class="pill sub">✔ ${done}/${ss.length}</span>`; }
+function childrenOf(id){ return Object.values(S.tasks).filter(t=>t.parentId===id); }
+function descendantIds(id){ const out=new Set(); (function walk(pid){ childrenOf(pid).forEach(c=>{ if(!out.has(c.id)){ out.add(c.id); walk(c.id); } }); })(id); return out; }
+function taskRef(t){ return (t.seq?("#"+seqPad(t.seq)+" "):"")+(t.title||"(untitled)"); }
+function subtaskCountPill(t){ const n=childrenOf(t.id).length; return n?`<span class="pill sub">🧩 ${n} sub-task${n>1?"s":""}</span>`:""; }
+function parentPill(t){ const p=t.parentId&&S.tasks[t.parentId]; return p?`<span class="pill loc">↳ part of #${seqPad(p.seq||0)}</span>`:""; }
 function card(t,priv){
   const p=priorityOf(t), ds=dueState(t);
   const who=isUnassigned(t)?`<span class="unassigned-tag">Unassigned — tap to take it</span>`
@@ -594,12 +612,14 @@ function card(t,priv){
         ${(t.handoff&&t.handoff.status==="pending")?`<span class="pill handoff">⚑ Approval needed</span>`:""}
         ${t.recurring?`<span class="pill recur">Repeats ${esc(t.recurring)}</span>`:""}
         ${subPill(t)}
+        ${subtaskCountPill(t)}
+        ${parentPill(t)}
         ${(t.photos&&t.photos.length)?`<span class="pill loc">📷 ${t.photos.length}</span>`:""}
         ${(t.comments&&t.comments.length)?`<span class="pill loc">💬 ${t.comments.length}</span>`:""}
       </div>
       <div class="who-line">${who}<br><span style="color:#9aa6ac">Started by ${esc(t.initiator||"—")}</span></div>
       ${t.nextStep?`<div class="nextline">⏭ ${esc(t.nextStep)}</div>`:""}
-    </div>${reorder}</div>`;
+    </div>${(!S.q && childrenOf(t.id).length)?`<div class="childlist">${childrenOf(t.id).map(c=>`<div class="childrow ${c.status==='done'?'done':''}" data-open="${c.id}">↳ ${esc(c.title||"(untitled)")}</div>`).join("")}</div>`:""}${reorder}</div>`;
 }
 
 /* ---------- logging ---------- */
@@ -638,7 +658,7 @@ function openNew(){
   editingIsNew=true;
   editing={ id:uid(), title:"", description:"", location:"", priority:2, dueDate:"", dueTime:"", status:"open",
     initiator:S.currentUser||"", assignees:[], partsOnOrder:false, recurring:"", boost:0, project:"", category:"",
-    progress:"", nextStep:"", blocker:"", handoff:null,
+    progress:"", nextStep:"", blocker:"", handoff:null, parentId:"",
     subtasks:[], photos:[], comments:[], activity:[], escalatedFor:"", createdAt:Date.now(), updatedAt:Date.now() };
   drawTaskModal(); openScrim("#taskScrim");
 }
@@ -713,6 +733,13 @@ function drawTaskModal(){
     <div class="cbar"><input type="text" id="subText" placeholder="Add a step"><button class="btn" id="addSub">Add</button></div>
 
     ${!isNew?`
+    <div class="section-h">Sub-tasks</div>
+    <div class="hint">Break this into separate tasks people can be assigned, or nest it under a parent.</div>
+    ${(t.parentId && S.tasks[t.parentId])?`<div class="parent-link" data-openparent="${t.parentId}">↳ Part of: ${esc(taskRef(S.tasks[t.parentId]))}</div>`:""}
+    <div class="subtask-list">${childrenOf(t.id).map(c=>`<div class="subtask-row" data-openchild="${c.id}"><span class="st-title">${esc(taskRef(c))}</span><span class="pill status-${c.status}">${esc(statusLabel(c.status))}</span></div>`).join("")||'<div class="hint" style="padding:4px 0">No sub-tasks yet.</div>'}</div>
+    <button class="btn" id="addSubtask" style="width:100%;margin-top:6px">➕ Add a sub-task</button>
+    <label class="fld" style="margin-top:8px"><span>Make this a sub-task of…</span><select id="parentSel"><option value="">— not a sub-task —</option>${Object.values(S.tasks).filter(o=>o.id!==t.id && !descendantIds(t.id).has(o.id)).sort((a,b)=>(a.seq||0)-(b.seq||0)).map(o=>`<option value="${o.id}"${t.parentId===o.id?" selected":""}>${esc(taskRef(o))}</option>`).join("")}<option value="__newparent__">＋ New parent task…</option></select></label>
+
     <div class="section-h">Comments</div>
     <div class="log" id="commentList">${(t.comments||[]).length?(t.comments).map(c=>`<div class="comment"><div class="h"><b>${esc(c.author)}</b> · ${esc(fmtTs(c.ts))}</div><p>${esc(c.text)}</p></div>`).join(""):'<div class="comment"><span class="hint">No comments yet.</span></div>'}</div>
     <div class="cbar"><input type="text" id="cText" placeholder="Add a comment"><button class="btn" id="cAdd">Post</button></div>
@@ -738,6 +765,16 @@ function drawTaskModal(){
       drawTaskModal(); return;
     }
     editing.project=fpj.value; if(!editingIsNew) saveTask(editing);
+  };
+  const psel=$("#parentSel");
+  if(psel) psel.onchange=()=>{
+    syncFields();
+    if(psel.value==="__newparent__"){
+      const n=prompt("New parent task title:"); const nm=(n||"").trim();
+      if(nm){ const parent=newTaskShell({ title:nm, location:editing.location||"", project:editing.project||"", category:editing.category||"" }); logEvent(parent,"created the task"); saveTask(parent); editing.parentId=parent.id; }
+      saveTask(editing); drawTaskModal(); return;
+    }
+    editing.parentId=psel.value; saveTask(editing); drawTaskModal();
   };
 }
 function hydratePhotos(){
@@ -782,6 +819,9 @@ function taskBodyClick(e){
   const rm=t.closest("[data-rm]"); if(rm){ removeAssignee(parseInt(rm.dataset.rm,10)); return; }
   const dsub=t.closest("[data-delsub]"); if(dsub){ removeSub(parseInt(dsub.dataset.delsub,10)); return; }
   const dph=t.closest("[data-delphoto]"); if(dph){ removePhoto(dph.dataset.delphoto); return; }
+  const op=t.closest("[data-openparent]"); if(op){ openTask(op.dataset.openparent); return; }
+  const oc=t.closest("[data-openchild]"); if(oc){ openTask(oc.dataset.openchild); return; }
+  if(t.id==="addSubtask"){ addSubtask(editing.id); return; }
   const gb=t.closest("[data-group]"); if(gb){ assignGroup(parseInt(gb.dataset.group,10)); return; }
   if(t.id==="assignBtn"){ assignChecked(); return; }
   if(t.id==="hoRequest"){ requestHandoff(); return; }
@@ -826,6 +866,19 @@ function assignGroup(i){
   syncFields();
   names.forEach(n=>{ editing.assignees.push({name:n,external:false}); logEvent(editing,"assigned "+n+" (via "+g.name+")"); });
   if(!editingIsNew){ saveTask(editing); notifyAssignment(editing,names); }
+  drawTaskModal();
+}
+function newTaskShell(over){
+  return Object.assign({ id:uid(), title:"", description:"", location:"", priority:2, dueDate:"", dueTime:"", status:"open",
+    initiator:S.currentUser||"", assignees:[], partsOnOrder:false, recurring:"", boost:0, project:"", category:"",
+    progress:"", nextStep:"", blocker:"", handoff:null, parentId:"",
+    subtasks:[], photos:[], comments:[], activity:[], escalatedFor:"", createdAt:Date.now(), updatedAt:Date.now(), seq:nextSeq() }, over||{});
+}
+function addSubtask(parentId){
+  const title=prompt("Sub-task title:"); if(!title||!title.trim()) return;
+  const child=newTaskShell({ title:title.trim(), parentId, location:editing.location||"", project:editing.project||"", category:editing.category||"" });
+  logEvent(child,"created the task");
+  saveTask(child);
   drawTaskModal();
 }
 function requestHandoff(){
@@ -914,6 +967,7 @@ async function deleteTask(){
   if(!canSeeAll()){ alert("Only managers can delete tasks. You can mark it Done instead."); return; }
   if(!confirm("Delete this task? This can't be undone.")) return;
   for(const pid of editing.photos||[]){ try{ await store.delPhoto(pid); delete photoCache[pid]; }catch(e){} }
+  for(const c of childrenOf(editing.id)){ c.parentId=""; try{ await store.putTask(c); }catch(e){} }
   await store.delTask(editing.id); delete S.tasks[editing.id]; closeScrim("#taskScrim"); render();
 }
 
