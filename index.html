@@ -82,6 +82,7 @@
   .childrow{padding:7px 6px;font-size:14px;color:#33424a;cursor:pointer;border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .childrow:hover{background:var(--chip)}
   .childrow.done{text-decoration:line-through;color:#9aa6ac}
+  .doneline{margin-top:5px;font-size:12.5px;color:#1f7a4d;font-weight:600}
   .tab{flex:0 0 auto;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:8px 14px;min-height:40px;font-weight:600;font-size:14px}
   .tab .n{color:var(--muted);font-weight:600;margin-left:5px}
   .tab[aria-selected="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -297,7 +298,7 @@
 <script>
 "use strict";
 
-const BUILD = 20;   // bump on each deploy for verification
+const BUILD = 21;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -619,6 +620,7 @@ function card(t,priv){
       </div>
       <div class="who-line">${who}<br><span style="color:#9aa6ac">Started by ${esc(t.initiator||"—")}</span></div>
       ${t.nextStep?`<div class="nextline">⏭ ${esc(t.nextStep)}</div>`:""}
+      ${(t.status==="done"&&t.completedBy)?`<div class="doneline">✓ Completed by ${esc(t.completedBy)} · ${esc(fmtTs(t.completedAt))}</div>`:""}
     </div>${(!S.q && childrenOf(t.id).length)?`<div class="childlist">${childrenOf(t.id).map(c=>`<div class="childrow ${c.status==='done'?'done':''}" data-open="${c.id}">↳ ${esc(c.title||"(untitled)")}</div>`).join("")}</div>`:""}${reorder}</div>`;
 }
 
@@ -703,6 +705,7 @@ function drawTaskModal(){
     </div>
     <div class="row2">
       <label class="fld"><span>Status</span><select id="fStatus">${STATUS.map(s=>`<option value="${s.v}"${s.v===t.status?" selected":""}>${s.label}</option>`).join("")}</select></label>
+    ${(t.status==="done"&&t.completedBy)?`<div class="doneline" style="margin:-2px 0 8px">✓ Completed by ${esc(t.completedBy)} · ${esc(fmtTs(t.completedAt))}</div>`:""}
     </div>
     <label class="fld"><span>Repeats</span><select id="fRecur">${RECUR.map(r=>`<option value="${r.v}"${r.v===t.recurring?" selected":""}>${r.label}</option>`).join("")}</select></label>
     <div class="check"><input type="checkbox" id="fParts" ${t.partsOnOrder?"checked":""}><label for="fParts">Waiting on parts (parts on order)</label></div>
@@ -1047,7 +1050,7 @@ async function renderSuggestions(){
   try{ items=await store.loadSuggestions(); }catch(e){ list.innerHTML='<div class="hint">Could not load suggestions.</div>'; return; }
   const arr=Object.values(items||{}).sort((a,b)=>(b.ts||0)-(a.ts||0));
   if(!arr.length){ list.innerHTML='<div class="hint">No suggestions yet.</div>'; return; }
-  list.innerHTML=arr.map(s=>`<div class="sugg ${s.status==='done'?'done':''}"><div class="h"><b>${esc(s.by||'someone')}</b> · ${esc(fmtTs(s.ts))} ${s.status==='done'?'<span class="pill cat">Done</span>':''}</div><p>${esc(s.text)}</p><div class="sugg-actions">${s.status==='done'?`<button class="btn ghost" data-sugreopen="${s.id}">Reopen</button>`:`<button class="btn ghost" data-sugdone="${s.id}">Mark done</button>`}<button class="btn ghost danger" data-sugdel="${s.id}">Delete</button></div></div>`).join("");
+  list.innerHTML=arr.map(s=>`<div class="sugg ${s.status==='done'?'done':''}"><div class="h"><b>${esc(s.by||'someone')}</b> · ${esc(fmtTs(s.ts))} ${s.status==='done'?'<span class="pill cat">Done</span>':''}</div><p>${esc(s.text)}</p>${(s.status==='done'&&s.doneBy)?`<div class="doneline">✓ Completed by ${esc(s.doneBy)} · ${esc(fmtTs(s.doneAt))}</div>`:''}<div class="sugg-actions">${s.status==='done'?`<button class="btn ghost" data-sugreopen="${s.id}">Reopen</button>`:`<button class="btn ghost" data-sugdone="${s.id}">Mark done</button>`}<button class="btn ghost danger" data-sugdel="${s.id}">Delete</button></div></div>`).join("");
   list.querySelectorAll("[data-sugdone]").forEach(b=>b.onclick=()=>setSuggestion(b.dataset.sugdone,"done"));
   list.querySelectorAll("[data-sugreopen]").forEach(b=>b.onclick=()=>setSuggestion(b.dataset.sugreopen,"open"));
   list.querySelectorAll("[data-sugdel]").forEach(b=>b.onclick=()=>removeSuggestion(b.dataset.sugdel));
@@ -1061,7 +1064,7 @@ async function submitSuggestion(){
   notifyManagers("New suggestion",(s.by)+": "+text.slice(0,90),"");
 }
 async function setSuggestion(id,status){
-  try{ const items=await store.loadSuggestions(); const s=items[id]; if(!s) return; s.status=status; await store.putSuggestion(s); }catch(e){}
+  try{ const items=await store.loadSuggestions(); const s=items[id]; if(!s) return; s.status=status; if(status==="done"){ s.doneBy=S.currentUser||""; s.doneAt=Date.now(); } else { s.doneBy=""; s.doneAt=0; } await store.putSuggestion(s); }catch(e){}
   renderSuggestions();
 }
 async function removeSuggestion(id){
@@ -1253,12 +1256,13 @@ function maybeShowInstallHint(){
 /* ---------- CSV ---------- */
 function exportCSV(){
   const arr=visibleTasks();
-  const head=["#","Task","Project","Category","Location","Importance","Due date","Status","Started by","Assigned to","Parts on order","Blocker","Next step","Repeats","Checklist done","Created"];
+  const head=["#","Task","Project","Category","Location","Importance","Due date","Status","Started by","Assigned to","Parts on order","Blocker","Next step","Repeats","Checklist done","Created","Completed by","Completed at"];
   const rows=arr.map(t=>{ const ss=t.subtasks||[]; return [
     t.seq?("#"+seqPad(t.seq)):"",t.title||"",t.project||"",catLabel(t.category),t.location||"",priorityOf(t).label,t.dueDate||"",statusLabel(t.status),t.initiator||"",
     (t.assignees||[]).map(a=>a.name+(a.external?" (outside)":"")).join("; "),
     t.partsOnOrder?"Yes":"No",t.blocker||"",t.nextStep||"",t.recurring||"", ss.length?(ss.filter(s=>s.done).length+"/"+ss.length):"",
-    t.createdAt?new Date(t.createdAt).toLocaleDateString():"" ]; });
+    t.createdAt?new Date(t.createdAt).toLocaleDateString():"",
+    (t.status==="done"?(t.completedBy||""):""),(t.status==="done"&&t.completedAt?fmtTs(t.completedAt):"") ]; });
   const csv=[head,...rows].map(r=>r.map(c=>{ c=String(c==null?"":c); return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c; }).join(",")).join("\r\n");
   const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="tasks-"+todayISO()+".csv"; document.body.appendChild(a); a.click();
