@@ -288,7 +288,7 @@
 <script>
 "use strict";
 
-const BUILD = 15;   // bump on each deploy for verification
+const BUILD = 16;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -667,6 +667,8 @@ function drawTaskModal(){
 
     ${(isNew && (S.config.templates||[]).length)?`<div class="section-h" style="margin-top:0">Quick start</div><div class="tpl-row">${(S.config.templates||[]).map((tp,ti)=>`<button type="button" class="tpl-chip" data-tpl="${ti}">${esc(tp.title)}</button>`).join("")}</div>`:""}
     <label class="fld"><span>Task</span><input type="text" id="fTitle" value="${esc(t.title)}" placeholder="What + where — e.g. Replace ballast, bay 2 — Transfer Building"></label>
+    <div class="section-h">Photos</div>
+    <div class="photos">${(t.photos||[]).map(id=>`<div class="thumb loading" data-photo="${id}">…</div>`).join("")}<label class="photo-add">📷 Add photo<input type="file" id="photoInput" accept="image/*" multiple></label></div>
     <label class="fld"><span>Details</span><textarea id="fDesc" placeholder="Notes, context, anything useful">${esc(t.description)}</textarea></label>
     <label class="fld"><span>Project (optional)</span><select id="fProject"><option value="">— none —</option>${(S.config.projects||[]).map(pj=>`<option value="${esc(pj)}"${pj===(t.project||"")?" selected":""}>${esc(pj)}</option>`).join("")}${(t.project && !(S.config.projects||[]).includes(t.project))?`<option value="${esc(t.project)}" selected>${esc(t.project)}</option>`:""}<option value="__new__">＋ New project…</option></select></label>
     <label class="fld"><span>Category</span><select id="fCategory">${CATEGORIES.map(c=>`<option value="${c.v}"${c.v===(t.category||"")?" selected":""}>${c.label}</option>`).join("")}</select></label>
@@ -709,9 +711,6 @@ function drawTaskModal(){
     ${ss.length?`<div class="sub-progress"><i style="width:${pct}%"></i></div>`:""}
     <div>${ss.map((s,i)=>`<div class="sub-item ${s.done?'done':''}"><input type="checkbox" data-subtoggle="${i}" ${s.done?'checked':''}><span class="t">${esc(s.text)}</span><button class="del" data-delsub="${i}" aria-label="Remove step">✕</button></div>`).join("")}</div>
     <div class="cbar"><input type="text" id="subText" placeholder="Add a step"><button class="btn" id="addSub">Add</button></div>
-
-    <div class="section-h">Photos</div>
-    <div class="photos">${(t.photos||[]).map(id=>`<div class="thumb loading" data-photo="${id}">…</div>`).join("")}<label class="photo-add">📷 Add photo<input type="file" id="photoInput" accept="image/*" multiple></label></div>
 
     ${!isNew?`
     <div class="section-h">Comments</div>
