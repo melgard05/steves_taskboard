@@ -297,7 +297,7 @@
 <script>
 "use strict";
 
-const BUILD = 18;   // bump on each deploy for verification
+const BUILD = 20;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -936,6 +936,7 @@ async function onStatusChange(){
   const next=editing.status;
   if(next==="done"&&prev!=="done"){
     editing.completedBy=S.currentUser||""; editing.completedAt=Date.now(); editing.boost=0; logEvent(editing,"marked it done");
+    notifyManagers("Task completed",(editing.title||"A task")+" — done by "+(S.currentUser||"someone"),editing.id);
     if(editing.recurring){
       const n2=JSON.parse(JSON.stringify(editing));
       n2.id=uid(); n2.status="open"; n2.boost=0; n2.subtasks=(n2.subtasks||[]).map(s=>({id:uid(),text:s.text,done:false}));
@@ -1338,7 +1339,7 @@ $("#taskClose").onclick=()=>closeScrim("#taskScrim");
 $("#setClose").onclick=()=>closeScrim("#setScrim");
 $("#sugBtn")?.addEventListener("click",openSuggestions);
 $("#sugClose")?.addEventListener("click",()=>closeScrim("#sugScrim"));
-$("#ubReload")?.addEventListener("click",()=>location.reload());
+$("#ubReload")?.addEventListener("click",async()=>{ try{ const rs=await navigator.serviceWorker?.getRegistrations(); if(rs) await Promise.all(rs.map(r=>r.update())); }catch(e){} location.reload(); });
 $("#taskScrim").onclick=e=>{ if(e.target.id==="taskScrim") closeScrim("#taskScrim"); };
 $("#setScrim").onclick=e=>{ if(e.target.id==="setScrim") closeScrim("#setScrim"); };
 $("#taskBody").addEventListener("click",taskBodyClick);

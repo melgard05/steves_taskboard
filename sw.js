@@ -2,7 +2,7 @@
    Deploy at the SAME path as index.html (repo root) so its scope covers the app.
    Handles: offline app-shell caching + background push notifications. */
 
-const CACHE = "taskboard-shell-v1";   // bump this string when you want to force a cache refresh
+const CACHE = "taskboard-shell-v2";   // bump this string when you want to force a cache refresh
 
 /* ---------- offline app shell ---------- */
 self.addEventListener("install", e => {
@@ -26,7 +26,7 @@ self.addEventListener("fetch", e => {
   // Network-first so deploys show up immediately; fall back to cache when offline.
   e.respondWith((async () => {
     try {
-      const fresh = await fetch(req);
+      const fresh = await fetch(req, { cache: "no-store" });
       const c = await caches.open(CACHE);
       c.put("./index.html", fresh.clone()).catch(() => {});
       return fresh;
