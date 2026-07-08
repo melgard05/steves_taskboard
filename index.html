@@ -83,6 +83,11 @@
   .childrow:hover{background:var(--chip)}
   .childrow.done{text-decoration:line-through;color:#9aa6ac}
   .doneline{margin-top:5px;font-size:12.5px;color:#1f7a4d;font-weight:600}
+  #camOverlay{display:none;position:fixed;inset:0;z-index:200;background:#000;flex-direction:column;align-items:center;justify-content:center}
+  #camVideo{max-width:100%;max-height:78vh;object-fit:contain}
+  .cam-bar{position:absolute;bottom:0;left:0;right:0;display:flex;gap:10px;justify-content:center;align-items:center;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.6))}
+  .cam-bar .btn{min-height:48px}
+  .cam-bar .btn.ghost{color:#fff;border-color:rgba(255,255,255,.5);background:transparent}
   .tab{flex:0 0 auto;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:8px 14px;min-height:40px;font-weight:600;font-size:14px}
   .tab .n{color:var(--muted);font-weight:600;margin-left:5px}
   .tab[aria-selected="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -298,7 +303,7 @@
 <script>
 "use strict";
 
-const BUILD = 21;   // bump on each deploy for verification
+const BUILD = 22;   // bump on each deploy for verification
 
 /* ============================================================
    CONFIG  — fill these in, then deploy.
@@ -690,7 +695,7 @@ function drawTaskModal(){
     ${(isNew && (S.config.templates||[]).length)?`<div class="section-h" style="margin-top:0">Quick start</div><div class="tpl-row">${(S.config.templates||[]).map((tp,ti)=>`<button type="button" class="tpl-chip" data-tpl="${ti}">${esc(tp.title)}</button>`).join("")}</div>`:""}
     <label class="fld"><span>Task</span><input type="text" id="fTitle" value="${esc(t.title)}" placeholder="What + where — e.g. Replace ballast, bay 2 — Transfer Building"></label>
     <div class="section-h">Photos</div>
-    <div class="photos">${(t.photos||[]).map(id=>`<div class="thumb loading" data-photo="${id}">…</div>`).join("")}<label class="photo-add">📷 Add photo<input type="file" id="photoInput" accept="image/*" multiple></label></div>
+    <div class="photos">${(t.photos||[]).map(id=>`<div class="thumb loading" data-photo="${id}">…</div>`).join("")}<label class="photo-add">🖼 Photo library<input type="file" id="photoInput" accept="image/*" multiple></label><button type="button" class="photo-add" id="takePhoto">📸 Take photo</button></div>
     <label class="fld"><span>Details</span><textarea id="fDesc" placeholder="Notes, context, anything useful">${esc(t.description)}</textarea></label>
     <label class="fld"><span>Project (optional)</span><select id="fProject"><option value="">— none —</option>${(S.config.projects||[]).map(pj=>`<option value="${esc(pj)}"${pj===(t.project||"")?" selected":""}>${esc(pj)}</option>`).join("")}${(t.project && !(S.config.projects||[]).includes(t.project))?`<option value="${esc(t.project)}" selected>${esc(t.project)}</option>`:""}<option value="__new__">＋ New project…</option></select></label>
     <label class="fld"><span>Category</span><select id="fCategory">${CATEGORIES.map(c=>`<option value="${c.v}"${c.v===(t.category||"")?" selected":""}>${c.label}</option>`).join("")}</select></label>
@@ -827,6 +832,7 @@ function taskBodyClick(e){
   if(t.id==="addSubtask"){ addSubtask(editing.id); return; }
   const gb=t.closest("[data-group]"); if(gb){ assignGroup(parseInt(gb.dataset.group,10)); return; }
   if(t.id==="assignBtn"){ assignChecked(); return; }
+  if(t.id==="takePhoto"){ openCamera(); return; }
   if(t.id==="hoRequest"){ requestHandoff(); return; }
   if(t.id==="hoApprove"){ approveHandoff(); return; }
   if(t.id==="hoDismiss"){ dismissHandoff(); return; }
@@ -987,6 +993,36 @@ function fileToDataURL(file,maxDim,quality){
     }; img.onerror=reject; img.src=fr.result; };
     fr.onerror=reject; fr.readAsDataURL(file);
   });
+}
+let camStream=null, camFacing="environment";
+async function openCamera(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ alert("This device can't open an in-app camera. Use “Photo library” instead."); return; }
+  const ov=$("#camOverlay"), v=$("#camVideo");
+  try{ camStream=await navigator.mediaDevices.getUserMedia({ video:{ facingMode:camFacing }, audio:false }); v.srcObject=camStream; ov.style.display="flex"; }
+  catch(e){ alert("Couldn't open the camera (permission denied?). You can still use “Photo library.”"); }
+}
+function closeCamera(){
+  const ov=$("#camOverlay"), v=$("#camVideo");
+  if(camStream){ camStream.getTracks().forEach(t=>t.stop()); camStream=null; }
+  if(v) v.srcObject=null; if(ov) ov.style.display="none";
+}
+async function flipCamera(){
+  camFacing = camFacing==="environment" ? "user" : "environment";
+  if(camStream){ camStream.getTracks().forEach(t=>t.stop()); }
+  try{ camStream=await navigator.mediaDevices.getUserMedia({ video:{ facingMode:camFacing }, audio:false }); $("#camVideo").srcObject=camStream; }catch(e){}
+}
+async function capturePhoto(){
+  const v=$("#camVideo"); if(!v||!v.videoWidth){ return; }
+  const maxW=1280, scale=Math.min(1, maxW/v.videoWidth);
+  const cw=Math.round(v.videoWidth*scale), ch=Math.round(v.videoHeight*scale);
+  const cv=document.createElement("canvas"); cv.width=cw; cv.height=ch;
+  cv.getContext("2d").drawImage(v,0,0,cw,ch);
+  const dataUrl=cv.toDataURL("image/jpeg",0.6);
+  const p={ id:uid(), taskId:editing.id, dataUrl, by:S.currentUser||"", ts:Date.now() };
+  syncFields();
+  try{ await store.putPhoto(p); photoCache[p.id]=p; editing.photos.push(p.id); if(!editingIsNew){ logEvent(editing,"added a photo"); await saveTask(editing); } }
+  catch(e){ alert("Couldn't save that photo."); }
+  closeCamera(); drawTaskModal(); hydratePhotos();
 }
 async function handlePhotoPick(files){
   if(!files||!files.length) return;
@@ -1344,6 +1380,9 @@ $("#setClose").onclick=()=>closeScrim("#setScrim");
 $("#sugBtn")?.addEventListener("click",openSuggestions);
 $("#sugClose")?.addEventListener("click",()=>closeScrim("#sugScrim"));
 $("#ubReload")?.addEventListener("click",async()=>{ try{ const rs=await navigator.serviceWorker?.getRegistrations(); if(rs) await Promise.all(rs.map(r=>r.update())); }catch(e){} location.reload(); });
+$("#camCancel")?.addEventListener("click",closeCamera);
+$("#camShot")?.addEventListener("click",capturePhoto);
+$("#camFlip")?.addEventListener("click",flipCamera);
 $("#taskScrim").onclick=e=>{ if(e.target.id==="taskScrim") closeScrim("#taskScrim"); };
 $("#setScrim").onclick=e=>{ if(e.target.id==="setScrim") closeScrim("#setScrim"); };
 $("#taskBody").addEventListener("click",taskBodyClick);
@@ -1389,5 +1428,13 @@ async function boot(){
 }
 boot();
 </script>
+<div id="camOverlay">
+  <video id="camVideo" autoplay playsinline muted></video>
+  <div class="cam-bar">
+    <button class="btn ghost" id="camCancel">Cancel</button>
+    <button class="btn primary" id="camShot">📸 Capture</button>
+    <button class="btn ghost" id="camFlip">Flip</button>
+  </div>
+</div>
 </body>
 </html>
