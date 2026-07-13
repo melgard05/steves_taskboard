@@ -83,9 +83,9 @@
   .childrow:hover{background:var(--chip)}
   .childrow.done{text-decoration:line-through;color:#9aa6ac}
   .doneline{margin-top:5px;font-size:12.5px;color:#1f7a4d;font-weight:600}
-  #camOverlay{display:none;position:fixed;inset:0;z-index:200;background:#000;flex-direction:column;align-items:center;justify-content:center}
-  #camVideo{max-width:100%;max-height:78vh;object-fit:contain}
-  .cam-bar{position:absolute;bottom:0;left:0;right:0;display:flex;gap:10px;justify-content:center;align-items:center;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.6))}
+  #camOverlay{display:none;position:fixed;inset:0;height:100vh;height:100dvh;z-index:200;background:#000;flex-direction:column;align-items:stretch;justify-content:space-between;overflow:hidden}
+  #camVideo{flex:1;min-height:0;width:100%;object-fit:contain;background:#000}
+  .cam-bar{flex:0 0 auto;display:flex;gap:10px;justify-content:center;align-items:center;padding:14px;padding-bottom:calc(14px + env(safe-area-inset-bottom));background:rgba(0,0,0,.85)}
   .cam-bar .btn{min-height:48px}
   .cam-bar .btn.ghost{color:#fff;border-color:rgba(255,255,255,.5);background:transparent}
   .badge{display:inline-block;min-width:18px;padding:0 5px;height:18px;line-height:18px;text-align:center;border-radius:9px;background:#d93636;color:#fff;font-size:11px;font-weight:800;vertical-align:middle}
@@ -311,11 +311,21 @@
   </div>
 </div>
 
+<div id="camOverlay">
+  <video id="camVideo" autoplay playsinline muted></video>
+  <div class="cam-bar">
+    <button class="btn ghost" id="camCancel">Cancel</button>
+    <button class="btn primary" id="camShot">📸 Capture</button>
+    <button class="btn ghost" id="camFlip">Flip</button>
+  </div>
+</div>
+
 <script>
 "use strict";
 
-const BUILD = 24;   // bump on each deploy for verification
+const BUILD = 25;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:25, note:"Fixed: in-app camera buttons now work and stay on screen; a new task you're typing is no longer lost if you switch apps." },
   { build:24, note:"New-version banner now shows what changed; a change log you can open by tapping the build number; the new-task window no longer closes if you tap outside it." },
   { build:23, note:"Suggestions button shows a red count of open suggestions." },
   { build:22, note:"Take a photo inside the app without it saving to your camera roll." },
@@ -691,6 +701,22 @@ function applyTemplate(ti){
   if(tp.recurring!==undefined) editing.recurring=tp.recurring||"";
   drawTaskModal();
 }
+function saveDraft(){
+  try{ if(editing && editingIsNew) lsSet("sb_draft", JSON.stringify({ t:editing, ts:Date.now(), user:S.currentUser })); }catch(e){}
+}
+function clearDraft(){ try{ lsSet("sb_draft",""); }catch(e){} }
+function restoreDraft(){
+  let raw=""; try{ raw=lsGet("sb_draft")||""; }catch(e){}
+  if(!raw) return false;
+  let d=null; try{ d=JSON.parse(raw); }catch(e){ return false; }
+  if(!d||!d.t) return false;
+  if(d.user && S.currentUser && d.user!==S.currentUser){ clearDraft(); return false; }
+  const hasContent=(d.t.title||d.t.description||(d.t.assignees||[]).length||(d.t.photos||[]).length||(d.t.subtasks||[]).length);
+  if(!hasContent){ clearDraft(); return false; }
+  editing=d.t; editingIsNew=true;
+  drawTaskModal(); openScrim("#taskScrim");
+  return true;
+}
 function openNew(){
   editingIsNew=true;
   editing={ id:uid(), title:"", description:"", location:"", priority:2, dueDate:"", dueTime:"", status:"open",
@@ -842,6 +868,7 @@ function syncFields(){
   if(g("fProgress")) editing.progress=g("fProgress").value;
   if(g("fNextStep")) editing.nextStep=g("fNextStep").value;
   if(g("fBlocker")) editing.blocker=g("fBlocker").value.trim();
+  saveDraft();
 }
 
 /* delegated modal handlers (wired once at init) */
@@ -875,8 +902,9 @@ function taskBodyClick(e){
   const tp=t.closest("[data-tpl]"); if(tp){ applyTemplate(parseInt(tp.dataset.tpl,10)); return; }
 }
 function wireFoot(){
-  const c=$("#cancelTask"); if(c) c.onclick=()=>closeScrim("#taskScrim");
+  const c=$("#cancelTask"); if(c) c.onclick=()=>{ if(confirm("Discard this new task?")){ clearDraft(); closeScrim("#taskScrim"); } };
   const cr=$("#createTask"); if(cr) cr.onclick=commitNew;
+  const tb=$("#taskBody"); if(tb && editingIsNew) tb.addEventListener("input",saveDraft);
   const d=$("#doneBtn"); if(d) d.onclick=()=>closeScrim("#taskScrim");
   const del=$("#deleteTask"); if(del) del.onclick=deleteTask;
 }
@@ -998,6 +1026,7 @@ function commitNew(){
   if(!editing.seq) editing.seq=nextSeq();
   if(!(editing.activity||[]).some(e=>e.what==="created the task")) logEvent(editing,"created the task");
   saveTask(editing);
+  clearDraft();
   const newInternal=(editing.assignees||[]).filter(a=>!a.external).map(a=>a.name);
   if(newInternal.length) notifyAssignment(editing,newInternal);
   editingIsNew=false;            // switch to edit mode so photos/comments unlock
@@ -1284,11 +1313,13 @@ function resetIdle(){
 }
 ["pointerdown","keydown","touchstart"].forEach(ev=>document.addEventListener(ev,resetIdle,{passive:true}));
 document.addEventListener("visibilitychange",()=>{
+  if(document.hidden) saveDraft();
   if(!isShared()) return;
   if(document.hidden){ hiddenAt=Date.now(); }
   else if(S.authed && hiddenAt && (Date.now()-hiddenAt)>idleMs()){ logout(); }
   else resetIdle();
 });
+window.addEventListener("pagehide",saveDraft);
 
 function finishLogin(name){
   S.currentUser=name; S.authed=true; setAuth(name);
@@ -1462,16 +1493,9 @@ async function boot(){
   else { showLogin(); }
   setInterval(()=>{ if(!S.modalOpen) refresh(); },6000);
   window.addEventListener("focus",()=>{ if(!S.modalOpen) refresh(); });
+  if(S.authed) restoreDraft();
 }
 boot();
 </script>
-<div id="camOverlay">
-  <video id="camVideo" autoplay playsinline muted></video>
-  <div class="cam-bar">
-    <button class="btn ghost" id="camCancel">Cancel</button>
-    <button class="btn primary" id="camShot">📸 Capture</button>
-    <button class="btn ghost" id="camFlip">Flip</button>
-  </div>
-</div>
 </body>
 </html>
