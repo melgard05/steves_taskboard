@@ -2,7 +2,7 @@
    Deploy at the SAME path as index.html (repo root) so its scope covers the app.
    Handles: offline app-shell caching + background push notifications. */
 
-const CACHE = "taskboard-shell-v2";   // bump this string when you want to force a cache refresh
+const CACHE = "taskboard-shell-v3";   // bump this string when you want to force a cache refresh
 
 /* ---------- offline app shell ---------- */
 self.addEventListener("install", e => {
@@ -43,12 +43,14 @@ self.addEventListener("push", event => {
   try { d = event.data ? event.data.json() : {}; }
   catch (_) { d = { title: "Task Board", body: event.data ? event.data.text() : "" }; }
   const title = d.title || "Task Board";
+  const isUpdate = /updated \(build/i.test(title);
   const options = {
     body: d.body || "",
-    tag: d.taskId || "taskboard",
+    tag: d.taskId || (isUpdate ? "taskboard-update" : "taskboard"),
     renotify: true,
-    requireInteraction: false,
-    data: { url: d.url || "./" }
+    requireInteraction: !!isUpdate,
+    actions: isUpdate ? [{ action: "reload", title: "🔄 Refresh now" }] : [],
+    data: { url: d.url || "./", isUpdate }
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });
@@ -56,9 +58,17 @@ self.addEventListener("push", event => {
 self.addEventListener("notificationclick", event => {
   event.notification.close();
   const url = (event.notification.data && event.notification.data.url) || "./";
+  const wantsReload = event.action === "reload" || (event.notification.data && event.notification.data.isUpdate);
   event.waitUntil((async () => {
+    if (wantsReload) { try { await self.registration.update(); } catch (_) {} }
     const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    for (const c of all) { if ("focus" in c) { return c.focus(); } }
+    for (const c of all) {
+      if ("focus" in c) {
+        await c.focus();
+        if (wantsReload && "navigate" in c) { try { return await c.navigate(c.url); } catch (_) {} }
+        return c;
+      }
+    }
     if (self.clients.openWindow) return self.clients.openWindow(url);
   })());
 });
