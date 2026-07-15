@@ -85,6 +85,10 @@
   .childrow:hover{background:var(--chip)}
   .childrow.done{text-decoration:line-through;color:#9aa6ac}
   .doneline{margin-top:5px;font-size:12.5px;color:#1f7a4d;font-weight:600}
+  .mode-toggle{display:flex;justify-content:flex-end;margin-bottom:6px}
+  .mode-toggle .btn{font-size:13px;min-height:34px}
+  #taskBody.mode-simple .adv-only{display:none}
+  #taskBody.mode-advanced .simple-only{display:none}
   #camOverlay{display:none;position:fixed;inset:0;height:100vh;height:100dvh;z-index:200;background:#000;flex-direction:column;align-items:stretch;justify-content:space-between;overflow:hidden}
   #camVideo{flex:1;min-height:0;width:100%;object-fit:contain;background:#000}
   .cam-bar{flex:0 0 auto;display:flex;gap:10px;justify-content:center;align-items:center;padding:14px;padding-bottom:calc(14px + env(safe-area-inset-bottom));background:rgba(0,0,0,.85)}
@@ -325,8 +329,9 @@
 <script>
 "use strict";
 
-const BUILD = 26;   // bump on each deploy for verification
+const BUILD = 27;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:27, note:"New tasks open in a simple Who/What/Where form with an Advanced options toggle; photo delete now asks first; existing tasks have a Back button; and you can switch a task between simple and advanced anytime." },
   { build:26, note:"You now get a phone notification when a new build is released, with a Refresh button right in it." },
   { build:25, note:"Fixed: in-app camera buttons now work and stay on screen; a new task you're typing is no longer lost if you switch apps." },
   { build:24, note:"New-version banner now shows what changed; a change log you can open by tapping the build number; the new-task window no longer closes if you tap outside it." },
@@ -693,7 +698,7 @@ async function bump(id,dir){
 }
 
 /* ---------- task modal ---------- */
-let editing=null, editingIsNew=false;
+let editing=null, editingIsNew=false, advForm=false;
 
 function applyTemplate(ti){
   const tp=(S.config.templates||[])[ti]; if(!tp||!editingIsNew) return;
@@ -721,7 +726,7 @@ function restoreDraft(){
   return true;
 }
 function openNew(){
-  editingIsNew=true;
+  editingIsNew=true; advForm=false;
   editing={ id:uid(), title:"", description:"", location:"", priority:2, dueDate:"", dueTime:"", status:"open",
     initiator:S.currentUser||"", assignees:[], partsOnOrder:false, recurring:"", boost:0, project:"", category:"",
     progress:"", nextStep:"", blocker:"", handoff:null, parentId:"",
@@ -730,7 +735,7 @@ function openNew(){
 }
 function openTask(id){
   const t=S.tasks[id]; if(!t) return;
-  editingIsNew=false; editing=JSON.parse(JSON.stringify(t));
+  editingIsNew=false; editing=JSON.parse(JSON.stringify(t)); advForm=false;
   ["assignees","subtasks","photos","comments","activity"].forEach(k=>editing[k]=editing[k]||[]);
   drawTaskModal(); openScrim("#taskScrim"); hydratePhotos();
 }
@@ -751,29 +756,28 @@ function drawTaskModal(){
     ${showSelf?`<div class="self-prompt"><span>Want to take this task?</span><button class="btn primary" id="selfYes">Assign to me</button><button class="btn ghost" id="selfNo">Not now</button></div>`:""}
     ${showAck?`<div class="ack-bar"><span>You're on this. Let the team know you've seen it.</span><button class="btn" id="ackBtn">Acknowledge</button></div>`:""}
 
+    <div class="mode-toggle"><button type="button" id="modeToggle" class="btn ghost">${advForm?"◂ Simple view":"⚙ Advanced options"}</button></div>
+
     ${(isNew && (S.config.templates||[]).length)?`<div class="section-h" style="margin-top:0">Quick start</div><div class="tpl-row">${(S.config.templates||[]).map((tp,ti)=>`<button type="button" class="tpl-chip" data-tpl="${ti}">${esc(tp.title)}</button>`).join("")}</div>`:""}
-    <label class="fld"><span>Task</span><input type="text" id="fTitle" value="${esc(t.title)}" placeholder="What + where — e.g. Replace ballast, bay 2 — Transfer Building"></label>
+    <label class="fld"><span>What</span><input type="text" id="fTitle" value="${esc(t.title)}" placeholder="What + where — e.g. Replace ballast, bay 2 — Transfer Building"></label>
     <div class="section-h">Photos</div>
     <div class="photos">${(t.photos||[]).map(id=>`<div class="thumb loading" data-photo="${id}">…</div>`).join("")}<label class="photo-add">🖼 Photo library<input type="file" id="photoInput" accept="image/*" multiple></label><button type="button" class="photo-add" id="takePhoto">📸 Take photo</button></div>
-    <label class="fld"><span>Details</span><textarea id="fDesc" placeholder="Notes, context, anything useful">${esc(t.description)}</textarea></label>
-    <label class="fld"><span>Project (optional)</span><select id="fProject"><option value="">— none —</option>${(S.config.projects||[]).map(pj=>`<option value="${esc(pj)}"${pj===(t.project||"")?" selected":""}>${esc(pj)}</option>`).join("")}${(t.project && !(S.config.projects||[]).includes(t.project))?`<option value="${esc(t.project)}" selected>${esc(t.project)}</option>`:""}<option value="__new__">＋ New project…</option></select></label>
-    <label class="fld"><span>Category</span><select id="fCategory">${CATEGORIES.map(c=>`<option value="${c.v}"${c.v===(t.category||"")?" selected":""}>${c.label}</option>`).join("")}</select></label>
+    <label class="fld adv-only"><span>Details</span><textarea id="fDesc" placeholder="Notes, context, anything useful">${esc(t.description)}</textarea></label>
+    <label class="fld adv-only"><span>Project (optional)</span><select id="fProject"><option value="">— none —</option>${(S.config.projects||[]).map(pj=>`<option value="${esc(pj)}"${pj===(t.project||"")?" selected":""}>${esc(pj)}</option>`).join("")}${(t.project && !(S.config.projects||[]).includes(t.project))?`<option value="${esc(t.project)}" selected>${esc(t.project)}</option>`:""}<option value="__new__">＋ New project…</option></select></label>
+    <label class="fld adv-only"><span>Category</span><select id="fCategory">${CATEGORIES.map(c=>`<option value="${c.v}"${c.v===(t.category||"")?" selected":""}>${c.label}</option>`).join("")}</select></label>
 
-    <div class="row2">
-      <label class="fld"><span>Location</span><select id="fLoc"><option value="">— none —</option>${(S.config.locations||[]).map(l=>`<option value="${esc(l)}"${l===t.location?" selected":""}>${esc(l)}</option>`).join("")}</select></label>
-      <label class="fld"><span>Importance</span><select id="fPrio">${PRIORITIES.map(p=>`<option value="${p.v}"${p.v===t.priority?" selected":""}>${p.label}</option>`).join("")}</select></label>
-    </div>
-    <div class="row2">
+    <label class="fld"><span>Where (location)</span><select id="fLoc"><option value="">— none —</option>${(S.config.locations||[]).map(l=>`<option value="${esc(l)}"${l===t.location?" selected":""}>${esc(l)}</option>`).join("")}</select></label>
+    <label class="fld simple-only"><span>Who (assign to)</span><select id="simpleAssign"><option value="">— unassigned —</option>${people.map(n=>`<option value="${esc(n)}"${(t.assignees||[]).some(a=>a.name===n)?" selected":""}>${esc(n)}</option>`).join("")}</select>${(t.assignees||[]).filter(a=>!a.external).length>1?'<div class="hint">More than one person is assigned — open Advanced options to manage them all.</div>':""}</label>
+    <label class="fld adv-only"><span>Importance</span><select id="fPrio">${PRIORITIES.map(p=>`<option value="${p.v}"${p.v===t.priority?" selected":""}>${p.label}</option>`).join("")}</select></label>
+    <div class="row2 adv-only">
       <label class="fld"><span>Due date</span><input type="date" id="fDue" value="${esc(t.dueDate)}"></label>
       <label class="fld"><span>Due time (optional)</span><input type="time" id="fDueTime" value="${esc(t.dueTime||"")}"></label>
     </div>
-    <div class="row2">
-      <label class="fld"><span>Status</span><select id="fStatus">${STATUS.map(s=>`<option value="${s.v}"${s.v===t.status?" selected":""}>${s.label}</option>`).join("")}</select></label>
-    ${(t.status==="done"&&t.completedBy)?`<div class="doneline" style="margin:-2px 0 8px">✓ Completed by ${esc(t.completedBy)} · ${esc(fmtTs(t.completedAt))}</div>`:""}
-    </div>
-    <label class="fld"><span>Repeats</span><select id="fRecur">${RECUR.map(r=>`<option value="${r.v}"${r.v===t.recurring?" selected":""}>${r.label}</option>`).join("")}</select></label>
-    <div class="check"><input type="checkbox" id="fParts" ${t.partsOnOrder?"checked":""}><label for="fParts">Waiting on parts (parts on order)</label></div>
+    ${!isNew?`<label class="fld"><span>Status</span><select id="fStatus">${STATUS.map(s=>`<option value="${s.v}"${s.v===t.status?" selected":""}>${s.label}</option>`).join("")}</select></label>${(t.status==="done"&&t.completedBy)?`<div class="doneline" style="margin:-2px 0 8px">✓ Completed by ${esc(t.completedBy)} · ${esc(fmtTs(t.completedAt))}</div>`:""}`:""}
+    <label class="fld adv-only"><span>Repeats</span><select id="fRecur">${RECUR.map(r=>`<option value="${r.v}"${r.v===t.recurring?" selected":""}>${r.label}</option>`).join("")}</select></label>
+    <div class="check adv-only"><input type="checkbox" id="fParts" ${t.partsOnOrder?"checked":""}><label for="fParts">Waiting on parts (parts on order)</label></div>
 
+    <div class="adv-only">
     <div class="section-h">Assigned to</div>
     <div class="assignees">${ownerChip}${doerChips||(t.initiator?"":'<span class="hint">No one yet</span>')}</div>
     ${isUnassigned(t)?'<div class="hint">No doer assigned — this sits in the Unassigned pool until someone takes it.</div>':""}
@@ -813,12 +817,17 @@ function drawTaskModal(){
 
     <div class="section-h">Activity</div>
     <div class="log">${(t.activity||[]).slice().reverse().map(e=>`<div class="e"><b>${esc(e.who)}</b> ${esc(e.what)}<time>${esc(fmtTs(e.ts))}</time></div>`).join("")||'<div class="e">No activity yet.</div>'}</div>`:""}
+    </div>
   `;
 
   $("#taskFoot").innerHTML = isNew
     ? `<button class="btn ghost" id="cancelTask" style="flex:1">Cancel</button><button class="btn primary" id="createTask" style="flex:2">Create task</button>`
-    : `${canSeeAll()?'<button class="btn danger" id="deleteTask">Delete</button>':''}<div style="flex:1"></div><button class="btn primary" id="doneBtn">Done</button>`;
+    : `${canSeeAll()?'<button class="btn danger" id="deleteTask">Delete</button>':''}<button class="btn ghost" id="backBtn">← Back</button><div style="flex:1"></div><button class="btn primary" id="doneBtn">Done</button>`;
   wireFoot();
+  $("#taskBody").classList.toggle("mode-simple",!advForm);
+  $("#taskBody").classList.toggle("mode-advanced",advForm);
+  const mt=$("#modeToggle"); if(mt) mt.onclick=()=>{ syncFields(); advForm=!advForm; drawTaskModal(); };
+  const sa=$("#simpleAssign"); if(sa) sa.onchange=()=>{ syncFields(); const v=sa.value; editing.assignees=v?[{name:v,external:false}]:[]; if(!editingIsNew){ saveTask(editing); if(v) notifyAssignment(editing,[v]); } drawTaskModal(); };
   const apf=$("#apFilter");
   if(apf) apf.oninput=()=>{ const q=apf.value.toLowerCase(); document.querySelectorAll("#apList .apopt").forEach(o=>{ o.style.display=o.textContent.toLowerCase().includes(q)?"":"none"; }); };
   const fpj=$("#fProject");
@@ -886,7 +895,7 @@ function taskBodyClick(e){
   const t=e.target;
   const rm=t.closest("[data-rm]"); if(rm){ removeAssignee(parseInt(rm.dataset.rm,10)); return; }
   const dsub=t.closest("[data-delsub]"); if(dsub){ removeSub(parseInt(dsub.dataset.delsub,10)); return; }
-  const dph=t.closest("[data-delphoto]"); if(dph){ removePhoto(dph.dataset.delphoto); return; }
+  const dph=t.closest("[data-delphoto]"); if(dph){ if(confirm("Delete this photo? This can't be undone.")) removePhoto(dph.dataset.delphoto); return; }
   const op=t.closest("[data-openparent]"); if(op){ openTask(op.dataset.openparent); return; }
   const oc=t.closest("[data-openchild]"); if(oc){ openTask(oc.dataset.openchild); return; }
   if(t.id==="addSubtask"){ addSubtask(editing.id); return; }
@@ -909,6 +918,7 @@ function wireFoot(){
   const cr=$("#createTask"); if(cr) cr.onclick=commitNew;
   const tb=$("#taskBody"); if(tb && editingIsNew) tb.addEventListener("input",saveDraft);
   const d=$("#doneBtn"); if(d) d.onclick=()=>closeScrim("#taskScrim");
+  const bk=$("#backBtn"); if(bk) bk.onclick=()=>{ if(confirm("Go back to the task list? Your changes are already saved.")) closeScrim("#taskScrim"); };
   const del=$("#deleteTask"); if(del) del.onclick=deleteTask;
 }
 
