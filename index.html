@@ -329,8 +329,9 @@
 <script>
 "use strict";
 
-const BUILD = 28;   // bump on each deploy for verification
+const BUILD = 29;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:29, note:"Simple task form now shows Details and drops Location (Location moved to Advanced options)." },
   { build:28, note:"The app now checks the server for a newer build on its own, so an open app reliably shows the update banner without needing a push." },
   { build:27, note:"New tasks open in a simple Who/What/Where form with an Advanced options toggle; photo delete now asks first; existing tasks have a Back button; and you can switch a task between simple and advanced anytime." },
   { build:26, note:"You now get a phone notification when a new build is released, with a Refresh button right in it." },
@@ -763,11 +764,11 @@ function drawTaskModal(){
     <label class="fld"><span>What</span><input type="text" id="fTitle" value="${esc(t.title)}" placeholder="What + where — e.g. Replace ballast, bay 2 — Transfer Building"></label>
     <div class="section-h">Photos</div>
     <div class="photos">${(t.photos||[]).map(id=>`<div class="thumb loading" data-photo="${id}">…</div>`).join("")}<label class="photo-add">🖼 Photo library<input type="file" id="photoInput" accept="image/*" multiple></label><button type="button" class="photo-add" id="takePhoto">📸 Take photo</button></div>
-    <label class="fld adv-only"><span>Details</span><textarea id="fDesc" placeholder="Notes, context, anything useful">${esc(t.description)}</textarea></label>
+    <label class="fld"><span>Details</span><textarea id="fDesc" placeholder="Notes, context, anything useful">${esc(t.description)}</textarea></label>
     <label class="fld adv-only"><span>Project (optional)</span><select id="fProject"><option value="">— none —</option>${(S.config.projects||[]).map(pj=>`<option value="${esc(pj)}"${pj===(t.project||"")?" selected":""}>${esc(pj)}</option>`).join("")}${(t.project && !(S.config.projects||[]).includes(t.project))?`<option value="${esc(t.project)}" selected>${esc(t.project)}</option>`:""}<option value="__new__">＋ New project…</option></select></label>
     <label class="fld adv-only"><span>Category</span><select id="fCategory">${CATEGORIES.map(c=>`<option value="${c.v}"${c.v===(t.category||"")?" selected":""}>${c.label}</option>`).join("")}</select></label>
 
-    <label class="fld"><span>Where (location)</span><select id="fLoc"><option value="">— none —</option>${(S.config.locations||[]).map(l=>`<option value="${esc(l)}"${l===t.location?" selected":""}>${esc(l)}</option>`).join("")}</select></label>
+    <label class="fld adv-only"><span>Location</span><select id="fLoc"><option value="">— none —</option>${(S.config.locations||[]).map(l=>`<option value="${esc(l)}"${l===t.location?" selected":""}>${esc(l)}</option>`).join("")}</select></label>
     <label class="fld simple-only"><span>Who (assign to)</span><select id="simpleAssign"><option value="">— unassigned —</option>${people.map(n=>`<option value="${esc(n)}"${(t.assignees||[]).some(a=>a.name===n)?" selected":""}>${esc(n)}</option>`).join("")}</select>${(t.assignees||[]).filter(a=>!a.external).length>1?'<div class="hint">More than one person is assigned — open Advanced options to manage them all.</div>':""}</label>
     <label class="fld adv-only"><span>Importance</span><select id="fPrio">${PRIORITIES.map(p=>`<option value="${p.v}"${p.v===t.priority?" selected":""}>${p.label}</option>`).join("")}</select></label>
     <div class="row2 adv-only">
