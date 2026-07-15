@@ -329,8 +329,9 @@
 <script>
 "use strict";
 
-const BUILD = 27;   // bump on each deploy for verification
+const BUILD = 28;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:28, note:"The app now checks the server for a newer build on its own, so an open app reliably shows the update banner without needing a push." },
   { build:27, note:"New tasks open in a simple Who/What/Where form with an Advanced options toggle; photo delete now asks first; existing tasks have a Back button; and you can switch a task between simple and advanced anytime." },
   { build:26, note:"You now get a phone notification when a new build is released, with a Refresh button right in it." },
   { build:25, note:"Fixed: in-app camera buttons now work and stay on screen; a new task you're typing is no longer lost if you switch apps." },
@@ -1475,6 +1476,24 @@ $("#list").addEventListener("click",e=>{
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeScrim("#setScrim"); closeScrim("#sugScrim"); closeScrim("#logScrim"); } });
 
 /* ---------- boot + polling ---------- */
+async function checkServerBuild(){
+  if(document.hidden) return;
+  try{
+    const r=await fetch("./index.html?v="+Date.now(), { cache:"no-store" });
+    if(!r.ok) return;
+    const txt=await r.text();
+    const m=txt.match(/const BUILD\s*=\s*(\d+)/);
+    if(!m) return;
+    const serverBuild=parseInt(m[1],10);
+    if(serverBuild>BUILD){
+      const ub=$("#updateBar"); if(!ub) return;
+      $("#ubN").textContent=serverBuild;
+      const nm=txt.match(/note:"([^"]+)"/);
+      $("#ubNote").textContent=nm?nm[1]:"Tap Refresh to update.";
+      ub.style.display="flex";
+    }
+  }catch(e){}
+}
 function checkBuild(){
   const ub=$("#updateBar"); if(!ub) return;
   const latest=(S.config&&S.config.appBuild)||0;
@@ -1519,7 +1538,10 @@ async function boot(){
   if(saved && (S.config.people||[]).some(p=>p.name===saved)){ S.currentUser=saved; S.authed=true; S.view=canSeeAll()?"open":"mine"; render(); resetIdle(); if(!isShared()){ maybeShowInstallHint(); enablePush(false,false); } }
   else { showLogin(); }
   setInterval(()=>{ if(!S.modalOpen) refresh(); },6000);
-  window.addEventListener("focus",()=>{ if(!S.modalOpen) refresh(); });
+  checkServerBuild();
+  setInterval(checkServerBuild, 90000);
+  window.addEventListener("focus",()=>{ if(!S.modalOpen){ refresh(); checkServerBuild(); } });
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden) checkServerBuild(); });
   if(S.authed) restoreDraft();
 }
 boot();
