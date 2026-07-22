@@ -329,8 +329,9 @@
 <script>
 "use strict";
 
-const BUILD = 29;   // bump on each deploy for verification
+const BUILD = 30;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:30, note:"The simple task form now has full assigning — pick several people at once, add a whole group, or assign someone outside the company." },
   { build:29, note:"Simple task form now shows Details and drops Location (Location moved to Advanced options)." },
   { build:28, note:"The app now checks the server for a newer build on its own, so an open app reliably shows the update banner without needing a push." },
   { build:27, note:"New tasks open in a simple Who/What/Where form with an Advanced options toggle; photo delete now asks first; existing tasks have a Back button; and you can switch a task between simple and advanced anytime." },
@@ -769,7 +770,6 @@ function drawTaskModal(){
     <label class="fld adv-only"><span>Category</span><select id="fCategory">${CATEGORIES.map(c=>`<option value="${c.v}"${c.v===(t.category||"")?" selected":""}>${c.label}</option>`).join("")}</select></label>
 
     <label class="fld adv-only"><span>Location</span><select id="fLoc"><option value="">— none —</option>${(S.config.locations||[]).map(l=>`<option value="${esc(l)}"${l===t.location?" selected":""}>${esc(l)}</option>`).join("")}</select></label>
-    <label class="fld simple-only"><span>Who (assign to)</span><select id="simpleAssign"><option value="">— unassigned —</option>${people.map(n=>`<option value="${esc(n)}"${(t.assignees||[]).some(a=>a.name===n)?" selected":""}>${esc(n)}</option>`).join("")}</select>${(t.assignees||[]).filter(a=>!a.external).length>1?'<div class="hint">More than one person is assigned — open Advanced options to manage them all.</div>':""}</label>
     <label class="fld adv-only"><span>Importance</span><select id="fPrio">${PRIORITIES.map(p=>`<option value="${p.v}"${p.v===t.priority?" selected":""}>${p.label}</option>`).join("")}</select></label>
     <div class="row2 adv-only">
       <label class="fld"><span>Due date</span><input type="date" id="fDue" value="${esc(t.dueDate)}"></label>
@@ -779,8 +779,7 @@ function drawTaskModal(){
     <label class="fld adv-only"><span>Repeats</span><select id="fRecur">${RECUR.map(r=>`<option value="${r.v}"${r.v===t.recurring?" selected":""}>${r.label}</option>`).join("")}</select></label>
     <div class="check adv-only"><input type="checkbox" id="fParts" ${t.partsOnOrder?"checked":""}><label for="fParts">Waiting on parts (parts on order)</label></div>
 
-    <div class="adv-only">
-    <div class="section-h">Assigned to</div>
+    <div class="section-h">Assigned to (who)</div>
     <div class="assignees">${ownerChip}${doerChips||(t.initiator?"":'<span class="hint">No one yet</span>')}</div>
     ${isUnassigned(t)?'<div class="hint">No doer assigned — this sits in the Unassigned pool until someone takes it.</div>':""}
     ${(S.config.groups&&S.config.groups.length)?`<div class="grouprow"><span class="grouplbl">Add a group:</span>${S.config.groups.map((g,i)=>`<button type="button" class="grouptag" data-group="${i}">＋ ${esc(g.name)}</button>`).join("")}</div>`:""}
@@ -790,6 +789,7 @@ function drawTaskModal(){
     </div>
     <div class="addbar" style="margin-top:10px"><input type="text" id="addExt" placeholder="Outside the company (separate several with commas)"><button class="btn" id="assignExtBtn">Assign</button></div>
 
+    <div class="adv-only">
     ${!isNew?`
     <div class="section-h">Status update &amp; hand-off</div>
     <label class="fld"><span>Where I left off</span><textarea id="fProgress" placeholder="What's been done so far">${esc(t.progress||"")}</textarea></label>
@@ -829,7 +829,6 @@ function drawTaskModal(){
   $("#taskBody").classList.toggle("mode-simple",!advForm);
   $("#taskBody").classList.toggle("mode-advanced",advForm);
   const mt=$("#modeToggle"); if(mt) mt.onclick=()=>{ syncFields(); advForm=!advForm; drawTaskModal(); };
-  const sa=$("#simpleAssign"); if(sa) sa.onchange=()=>{ syncFields(); const v=sa.value; editing.assignees=v?[{name:v,external:false}]:[]; if(!editingIsNew){ saveTask(editing); if(v) notifyAssignment(editing,[v]); } drawTaskModal(); };
   const apf=$("#apFilter");
   if(apf) apf.oninput=()=>{ const q=apf.value.toLowerCase(); document.querySelectorAll("#apList .apopt").forEach(o=>{ o.style.display=o.textContent.toLowerCase().includes(q)?"":"none"; }); };
   const fpj=$("#fProject");
