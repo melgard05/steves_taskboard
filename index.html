@@ -396,18 +396,32 @@ function cloudPut(sub, value){
     .catch(()=> setStatus("warn","Offline"));
 }
 async function cloudLoad(){
-  if(!FIREBASE_DB) return;
+  if(!FIREBASE_DB) return false;
+  let r;
+  try{ r = await fetch(dbUrl("")); }
+  catch(e){ setStatus("warn","Offline"); return false; }
+  if(r.status===401 || r.status===403){
+    syncProblem="Your database rules are blocking this board. In Firebase → Realtime Database → Rules, allow read and write on \"viktix\", then press Publish.";
+    setStatus("warn","Sync blocked — tap"); return false;
+  }
+  if(r.status===404){
+    const host=(function(){ try{ return new URL(FIREBASE_DB).host; }catch(e){ return FIREBASE_DB; } })();
+    syncProblem="404 from "+host+". Use Test connection below to see the exact address being called.";
+    setStatus("warn","Sync blocked — tap"); return false;
+  }
+  if(!r.ok){ setStatus("warn","Sync error "+r.status); return false; }
   try{
-    const r = await fetch(dbUrl(""));
     const data = await r.json();
     if(data){
       if(Array.isArray(data.roster)) state.roster = tidyRoster(data.roster);
       if(data.assign) applyAssignMap(data.assign);
       if(data.received) applyReceivedMap(data.received);
-      if(data.received) applyReceivedMap(data.received);
       saveLocal(); renderAll();
     }
-  }catch(e){ setStatus("warn","Offline"); }
+  }catch(e){ /* empty or unparseable body is fine — an empty board reads as null */ }
+  syncProblem=null;
+  if(!liveOK) setStatus("synced","Synced · polling");
+  return true;
 }
 function applyReceivedMap(obj){
   obj=obj||{};
@@ -450,37 +464,43 @@ async function testConnection(){
 function startStream(){
   if(es){ es.close(); es=null; }
   if(pollTimer){ clearInterval(pollTimer); pollTimer=null; }
-  syncProblem=null;
+  if(watchdog){ clearTimeout(watchdog); watchdog=null; }
+  liveOK=false; syncProblem=null;
   if(!FIREBASE_DB){ setStatus("local","Local only"); return; }
+
+  setStatus("warn","Connecting…");
+  // Polling is the dependable path, so it starts immediately and the board is
+  // syncing within seconds regardless of what the live stream does. The stream is
+  // only an upgrade: if it connects, updates become instant and polling stops.
   cloudLoad();
-  if(!window.EventSource){ goPolling(); return; }
-  let fails=0;
+  pollTimer=setInterval(cloudLoad, 5000);
+  tryLiveStream();
+}
+function tryLiveStream(){
+  if(!window.EventSource) return;      // no stream support — polling already covers it
   try{
     es = new EventSource(dbUrl(""));
     es.addEventListener("put",   e=> applyEvent(JSON.parse(e.data)));
     es.addEventListener("patch", e=> applyEvent(JSON.parse(e.data), true));
-    es.onopen  = ()=>{ fails=0; syncProblem=null; setStatus("synced","Synced"); };
-    es.onerror = ()=>{
-      fails++;
-      if(fails<2){ setStatus("warn","Reconnecting…"); return; }
-      // Two failures in a row is not a blip. Some networks block streaming
-      // connections outright, so fall back to polling if plain REST still works.
-      if(es){ es.close(); es=null; }
-      setStatus("warn","Checking connection…");
-      testConnection().then(res=>{
-        if(res.ok){ goPolling(); }
-        else{ syncProblem=res.msg; setStatus("warn","Sync blocked — tap"); setupStatus(); }
-      });
+    es.onopen = ()=>{
+      liveOK=true; syncProblem=null;
+      if(pollTimer){ clearInterval(pollTimer); pollTimer=null; }   // live now, polling redundant
+      if(watchdog){ clearTimeout(watchdog); watchdog=null; }
+      setStatus("synced","Synced");
     };
-  }catch(err){ goPolling(); }
+    // Deliberately quiet on error: polling is still running, so a failed stream is
+    // not a failed sync. The watchdog decides when to stop trying.
+    es.onerror = ()=>{};
+    // A blocked stream often connects and then hangs, firing one error and retrying
+    // forever, so waiting for repeated errors would wait forever. Time it out instead.
+    watchdog=setTimeout(()=>{
+      if(liveOK) return;
+      if(es){ es.close(); es=null; }
+      if(!pollTimer){ cloudLoad(); pollTimer=setInterval(cloudLoad, 5000); }
+    }, 8000);
+  }catch(e){ /* polling continues */ }
 }
-/* Live stream unavailable but REST works — refresh on a timer instead. */
-function goPolling(){
-  if(pollTimer) clearInterval(pollTimer);
-  pollTimer=setInterval(cloudLoad, 5000);
-  syncProblem=null;
-  setStatus("synced","Synced · polling");
-}
+
 function applyEvent(msg, isPatch){
   if(!msg) return;
   const path = msg.path, data = msg.data;
@@ -513,7 +533,7 @@ function applyEvent(msg, isPatch){
   }
   saveLocal(); renderAll();
 }
-let pollTimer=null;
+let pollTimer=null, watchdog=null, liveOK=false;
 
 function setStatus(cls, text){ connCls=cls; connText=text; paintPill(); }
 function paintPill(){
