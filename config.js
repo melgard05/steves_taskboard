@@ -23,6 +23,6 @@
    Do not put a Firebase secret here — this file is publicly readable.
 */
 window.VIKTIX_CONFIG = {
-  db: "https://vikings-tickets-default-rtdb.firebaseio.com",
+  db: "https://vikingsss-tickets-default-rtdb.firebaseio.com",
   auth: ""
 };
