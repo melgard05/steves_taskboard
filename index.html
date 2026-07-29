@@ -329,8 +329,9 @@
 <script>
 "use strict";
 
-const BUILD = 30;   // bump on each deploy for verification
+const BUILD = 31;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:31, note:"Assignable list is sorted by first name; creating a task now asks to assign anyone you checked but did not tap Assign for." },
   { build:30, note:"The simple task form now has full assigning — pick several people at once, add a whole group, or assign someone outside the company." },
   { build:29, note:"Simple task form now shows Details and drops Location (Location moved to Advanced options)." },
   { build:28, note:"The app now checks the server for a newer build on its own, so an open app reliably shows the update banner without needing a push." },
@@ -746,7 +747,7 @@ function openTask(id){
 function drawTaskModal(){
   const t=editing, isNew=editingIsNew;
   $("#taskTitle").textContent=isNew?"New task":"Task";
-  const people=(S.config.people||[]).map(p=>p.name).sort(byLast);
+  const people=(S.config.people||[]).map(p=>p.name).sort((a,b)=>a.localeCompare(b));
   const showSelf=!isNew && S.currentUser && !isMine(t) && t.status!=="done";
   const showAck =!isNew && isMine(t) && t.status==="open";
   const ownerChip=t.initiator?`<span class="achip owner">${esc(t.initiator)} <span class="lock">starter</span></span>`:"";
@@ -1036,6 +1037,13 @@ function commitNew(){
   syncFields();
   if(!S.currentUser){ alert("Pick who you are up top first, so the task has a starter."); return; }
   if(!editing.title){ const ti=$("#fTitle"); ti.focus(); ti.style.borderColor="var(--p-crit)"; return; }
+  const checked=[...document.querySelectorAll("#apList input:checked")].map(b=>b.value).filter(n=>n && n!==editing.initiator && !assignedNames(editing).includes(n));
+  if(checked.length){
+    const msg = checked.length===1
+      ? `You checked ${checked[0]} but didn't tap Assign. Add them to this task?`
+      : `You checked ${checked.length} people but didn't tap Assign. Add them to this task?`;
+    if(confirm(msg)){ checked.forEach(n=>{ editing.assignees.push({name:n,external:false}); logEvent(editing,"assigned "+n); }); }
+  }
   editing.initiator=S.currentUser;
   if(!editing.seq) editing.seq=nextSeq();
   if(!(editing.activity||[]).some(e=>e.what==="created the task")) logEvent(editing,"created the task");
