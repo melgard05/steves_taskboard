@@ -329,8 +329,9 @@
 <script>
 "use strict";
 
-const BUILD = 31;   // bump on each deploy for verification
+const BUILD = 32;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:32, note:"People list in settings can be sorted by first or last name (defaults to first name)." },
   { build:31, note:"Assignable list is sorted by first name; creating a task now asks to assign anyone you checked but did not tap Assign for." },
   { build:30, note:"The simple task form now has full assigning — pick several people at once, add a whole group, or assign someone outside the company." },
   { build:29, note:"Simple task form now shows Details and drops Location (Location moved to Advanced options)." },
@@ -703,6 +704,7 @@ async function bump(id,dir){
 
 /* ---------- task modal ---------- */
 let editing=null, editingIsNew=false, advForm=false;
+let peopleSortMode=(lsGet("sb_peoplesort")==="last")?"last":"first";
 
 function applyTemplate(ti){
   const tp=(S.config.templates||[])[ti]; if(!tp||!editingIsNew) return;
@@ -1196,10 +1198,11 @@ async function removeSuggestion(id){
 }
 function openSettings(){
   const c=S.config;
-  (c.people||[]).sort((a,b)=>byLast(a.name,b.name));
+  (c.people||[]).sort(peopleSortMode==="last" ? (a,b)=>byLast(a.name,b.name) : (a,b)=>a.name.localeCompare(b.name));
   $("#setBody").innerHTML=`
     <div class="section-h">People</div>
     <div class="hint">Tap a name to edit it. Give each person a <b>unique</b> PIN — that's all they enter to sign in. Tick <b>manager</b> for anyone who should see every task, delete tasks, and pin tasks to the top; leave it off for crew so they only see their own work.</div>
+    <div class="seg" style="margin:2px 0 8px"><button type="button" id="psFirst" aria-pressed="${peopleSortMode==='first'}">Sort: First name</button><button type="button" id="psLast" aria-pressed="${peopleSortMode==='last'}">Last name</button></div>
     <div id="pinSummary" class="pin-summary"></div>
     <div>${(c.people||[]).map((p,i)=>`<div class="people-row"><input class="nm-edit" data-pname="${i}" data-orig="${esc(p.name)}" value="${esc(p.name)}" aria-label="Name"><input type="text" inputmode="numeric" class="pinbox" data-pin="${i}" value="${esc(p.pin||"")}" placeholder="PIN" maxlength="8" autocomplete="off"><label><input type="checkbox" data-manager="${i}" ${isManager(p)?"checked":""}> manager</label><button class="btn ghost danger" data-delp="${i}">Remove</button></div>`).join("")}</div>
     <div class="addbar" style="margin-top:8px"><input type="text" id="newPerson" placeholder="Add a person"><button class="btn" id="addNewPerson">Add</button></div>
@@ -1237,6 +1240,8 @@ function openSettings(){
   $("#idleMin").onchange=()=>{ lsSet("sb_idlemin",$("#idleMin").value); resetIdle(); };
   $("#addTpl").onclick=()=>{ const ti=$("#tplTitle").value.trim(); if(!ti) return; S.config.templates=S.config.templates||[]; S.config.templates.push({title:ti,location:$("#tplLoc").value,priority:parseInt($("#tplPrio").value,10),recurring:$("#tplRecur").value}); openSettings(); };
   document.querySelectorAll("[data-deltpl]").forEach(b=>b.onclick=()=>{ S.config.templates.splice(parseInt(b.dataset.deltpl,10),1); openSettings(); });
+  $("#psFirst").onclick=()=>{ peopleSortMode="first"; lsSet("sb_peoplesort","first"); openSettings(); };
+  $("#psLast").onclick=()=>{ peopleSortMode="last"; lsSet("sb_peoplesort","last"); openSettings(); };
   $("#addNewPerson").onclick=()=>{ const v=$("#newPerson").value.trim(); if(!v) return; S.config.people.push({name:v,pin:"",manager:false}); openSettings(); };
   $("#addNewLoc").onclick=()=>{ const v=$("#newLoc").value.trim(); if(!v) return; S.config.locations.push(v); openSettings(); };
   $("#addNewProj").onclick=()=>{ const v=$("#newProj").value.trim(); if(!v) return; S.config.projects=S.config.projects||[]; if(!S.config.projects.includes(v)){ S.config.projects.push(v); S.config.projects.sort((a,b)=>a.localeCompare(b)); } openSettings(); };
