@@ -244,6 +244,7 @@
 
 <div id="cfgBanner" class="banner" style="display:none"></div>
 <div id="installHint" class="banner" style="display:none"></div>
+<div id="notifyBanner" class="banner" style="display:none"></div>
 
 <div id="updateBar"><span>🔄 New version (build <b id="ubN"></b>) — <span id="ubNote"></span></span><button class="btn" id="ubReload">🔄 Refresh now</button></div>
 <header>
@@ -329,8 +330,9 @@
 <script>
 "use strict";
 
-const BUILD = 32;   // bump on each deploy for verification
+const BUILD = 33;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:33, note:"Shows a banner prompting you to turn on notifications if they are not enabled on this device." },
   { build:32, note:"People list in settings can be sorted by first or last name (defaults to first name)." },
   { build:31, note:"Assignable list is sorted by first name; creating a task now asks to assign anyone you checked but did not tap Assign for." },
   { build:30, note:"The simple task form now has full assigning — pick several people at once, add a whole group, or assign someone outside the company." },
@@ -1354,6 +1356,7 @@ function finishLogin(name){
   $("#loginScrim").classList.remove("open"); document.body.style.overflow="";
   render(); resetIdle();
   if(!isShared()){ maybeShowInstallHint(); enablePush(true,false); }
+  maybeShowNotifyBanner();
 }
 function logout(){
   S.authed=false; S.currentUser=""; clearAuth();
@@ -1402,6 +1405,16 @@ function exportCSV(){
 const PUSH_OK = !!(CONFIG.PUSH.WORKER_URL && CONFIG.PUSH.VAPID_PUBLIC_KEY && ("serviceWorker" in navigator) && ("PushManager" in window) && ("Notification" in window));
 function urlB64ToUint8(b64){ const pad="=".repeat((4-b64.length%4)%4); const s=(b64+pad).replace(/-/g,"+").replace(/_/g,"/"); const raw=atob(s); const out=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++) out[i]=raw.charCodeAt(i); return out; }
 function markPush(on){ const b=$("#pushBtn"); if(!b) return; b.classList.toggle("on",on); b.textContent=on?"🔔 Alerts on":"🔔 Alerts"; }
+function notifOn(){ return ("Notification" in window) && Notification.permission==="granted" && lsGet("sb_push")==="1"; }
+function maybeShowNotifyBanner(){
+  const b=$("#notifyBanner"); if(!b) return;
+  const iosNoInstall = (isIOS() && !isStandalone());
+  if(!S.authed || isShared() || !PUSH_OK || iosNoInstall || notifOn() || sessionStorage.getItem("sb_notifyhide")==="1"){ b.style.display="none"; return; }
+  b.style.display="block";
+  b.innerHTML='🔔 <b>Notifications are off.</b> Turn them on to get alerts when a task is assigned to you, completed, or needs approval. <button class="btn" id="notifOnBtn" style="margin-left:8px">Turn on</button> <button class="btn ghost" id="notifX" aria-label="Dismiss" style="margin-left:4px">✕</button>';
+  $("#notifOnBtn").onclick=async()=>{ await enablePush(true,true); maybeShowNotifyBanner(); };
+  $("#notifX").onclick=()=>{ b.style.display="none"; try{ sessionStorage.setItem("sb_notifyhide","1"); }catch(e){} };
+}
 async function enablePush(interactive,test){
   if(!PUSH_OK || !S.currentUser) return;
   if(isIOS() && !isStandalone()){ if(interactive){ alert("On iPhone, add this to your Home Screen first (Share → Add to Home Screen) and open it from there. Then alerts can be turned on."); maybeShowInstallHint(); } return; }
@@ -1467,7 +1480,7 @@ $("#search").oninput=e=>{ S.q=e.target.value.trim(); render(); };
 $("#newBtn").onclick=openNew;
 $("#exportBtn").onclick=exportCSV;
 $("#settingsBtn").onclick=openSettings;
-$("#pushBtn").onclick=()=>enablePush(true,true);
+$("#pushBtn").onclick=()=>enablePush(true,true).then(()=>maybeShowNotifyBanner());
 $("#taskClose").onclick=()=>closeScrim("#taskScrim");
 $("#setClose").onclick=()=>closeScrim("#setScrim");
 $("#sugBtn")?.addEventListener("click",openSuggestions);
@@ -1548,12 +1561,12 @@ async function boot(){
   const savedSort=lsGet("sb_sort"); if(savedSort==="due"||savedSort==="imp") S.sort=savedSort;
   // Location filter intentionally NOT restored on open — each session starts at "All locations" so nothing stays hidden.
   const saved=getAuth();
-  if(saved && (S.config.people||[]).some(p=>p.name===saved)){ S.currentUser=saved; S.authed=true; S.view=canSeeAll()?"open":"mine"; render(); resetIdle(); if(!isShared()){ maybeShowInstallHint(); enablePush(false,false); } }
+  if(saved && (S.config.people||[]).some(p=>p.name===saved)){ S.currentUser=saved; S.authed=true; S.view=canSeeAll()?"open":"mine"; render(); resetIdle(); if(!isShared()){ maybeShowInstallHint(); enablePush(false,false); } maybeShowNotifyBanner(); }
   else { showLogin(); }
   setInterval(()=>{ if(!S.modalOpen) refresh(); },6000);
   checkServerBuild();
   setInterval(checkServerBuild, 90000);
-  window.addEventListener("focus",()=>{ if(!S.modalOpen){ refresh(); checkServerBuild(); } });
+  window.addEventListener("focus",()=>{ if(!S.modalOpen){ refresh(); checkServerBuild(); } maybeShowNotifyBanner(); });
   document.addEventListener("visibilitychange",()=>{ if(!document.hidden) checkServerBuild(); });
   if(S.authed) restoreDraft();
 }
