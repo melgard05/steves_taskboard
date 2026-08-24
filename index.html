@@ -330,8 +330,9 @@
 <script>
 "use strict";
 
-const BUILD = 34;   // bump on each deploy for verification
+const BUILD = 35;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:35, note:"Repeats now supports more intervals: every 2 or 3 days, every 2 weeks, every 2, 3, or 6 months, yearly, or a custom every-N-days." },
   { build:34, note:"Bell test now shows the notification server's real result (per-device status codes) so delivery problems name themselves." },
   { build:33, note:"Shows a banner prompting you to turn on notifications if they are not enabled on this device." },
   { build:32, note:"People list in settings can be sorted by first or last name (defaults to first name)." },
@@ -384,7 +385,27 @@ const CONFIG = {
 
 const PRIORITIES=[{v:4,label:"Critical",cls:"p4"},{v:3,label:"High",cls:"p3"},{v:2,label:"Medium",cls:"p2"},{v:1,label:"Low",cls:"p1"}];
 const STATUS=[{v:"open",label:"Open"},{v:"acknowledged",label:"Acknowledged"},{v:"in_progress",label:"In progress"},{v:"done",label:"Done"}];
-const RECUR=[{v:"",label:"Does not repeat"},{v:"daily",label:"Repeats daily"},{v:"weekly",label:"Repeats weekly"},{v:"monthly",label:"Repeats monthly"}];
+const RECUR=[
+  {v:"",label:"Does not repeat"},
+  {v:"daily",label:"Repeats daily"},
+  {v:"every:2:days",label:"Every 2 days"},
+  {v:"every:3:days",label:"Every 3 days"},
+  {v:"weekly",label:"Repeats weekly"},
+  {v:"every:2:weeks",label:"Every 2 weeks"},
+  {v:"monthly",label:"Repeats monthly"},
+  {v:"every:2:months",label:"Every 2 months"},
+  {v:"every:3:months",label:"Every 3 months (quarterly)"},
+  {v:"every:6:months",label:"Every 6 months"},
+  {v:"every:12:months",label:"Yearly"},
+  {v:"__custom__",label:"Custom — every N days…"}
+];
+function recurLabel(v){
+  if(!v) return "";
+  const hit=RECUR.find(r=>r.v===v); if(hit) return hit.label.replace(/^Repeats /,"");
+  const m=/^every:(\d+):(days|weeks|months)$/.exec(v);
+  if(m) return "Every "+m[1]+" "+(m[1]==="1"?m[2].slice(0,-1):m[2]);
+  return v;
+}
 const CATEGORIES=[{v:"",label:"—"},{v:"repair",label:"Repair"},{v:"maintenance",label:"Maintenance"},{v:"inspection",label:"Inspection"},{v:"cleaning",label:"Cleaning"},{v:"other",label:"Other"}];
 function catLabel(v){ return (CATEGORIES.find(c=>c.v===v)||{}).label||""; }
 function seqPad(n){ return String(n||0).padStart(4,"0"); }
@@ -488,7 +509,19 @@ function fmtDue(iso){
   if(diff<7) return "Due "+wk+" ("+md+")";
   return "Due "+md;
 }
-function advance(iso,freq){ const d=new Date(iso+"T00:00"); if(freq==="daily")d.setDate(d.getDate()+1); else if(freq==="weekly")d.setDate(d.getDate()+7); else if(freq==="monthly")d.setMonth(d.getMonth()+1); return d.toISOString().slice(0,10); }
+function advance(iso,freq){
+  const d=new Date(iso+"T00:00");
+  const m=/^every:(\d+):(days|weeks|months)$/.exec(freq||"");
+  if(m){ const n=parseInt(m[1],10)||1;
+    if(m[2]==="days") d.setDate(d.getDate()+n);
+    else if(m[2]==="weeks") d.setDate(d.getDate()+7*n);
+    else d.setMonth(d.getMonth()+n);
+  }
+  else if(freq==="daily")d.setDate(d.getDate()+1);
+  else if(freq==="weekly")d.setDate(d.getDate()+7);
+  else if(freq==="monthly")d.setMonth(d.getMonth()+1);
+  return d.toISOString().slice(0,10);
+}
 function fmtTs(ts){ const d=new Date(ts); return d.toLocaleDateString(undefined,{month:"short",day:"numeric"})+" "+d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); }
 function fmtTime(hhmm){ if(!hhmm) return ""; const a=hhmm.split(":"); const d=new Date(); d.setHours(parseInt(a[0],10)||0,parseInt(a[1],10)||0,0,0); return d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); }
 function dueKey(t){ return (t.dueDate||"9999-12-31")+"T"+(t.dueTime||"23:59"); }
@@ -672,7 +705,7 @@ function card(t,priv){
         ${t.partsOnOrder?`<span class="pill parts">Parts on order</span>`:""}
         ${t.blocker?`<span class="pill blocked">⛔ Blocked</span>`:""}
         ${(t.handoff&&t.handoff.status==="pending")?`<span class="pill handoff">⚑ Approval needed</span>`:""}
-        ${t.recurring?`<span class="pill recur">Repeats ${esc(t.recurring)}</span>`:""}
+        ${t.recurring?`<span class="pill recur">🔁 ${esc(recurLabel(t.recurring))}</span>`:""}
         ${subPill(t)}
         ${subtaskCountPill(t)}
         ${parentPill(t)}
@@ -782,7 +815,7 @@ function drawTaskModal(){
       <label class="fld"><span>Due time (optional)</span><input type="time" id="fDueTime" value="${esc(t.dueTime||"")}"></label>
     </div>
     ${!isNew?`<label class="fld"><span>Status</span><select id="fStatus">${STATUS.map(s=>`<option value="${s.v}"${s.v===t.status?" selected":""}>${s.label}</option>`).join("")}</select></label>${(t.status==="done"&&t.completedBy)?`<div class="doneline" style="margin:-2px 0 8px">✓ Completed by ${esc(t.completedBy)} · ${esc(fmtTs(t.completedAt))}</div>`:""}`:""}
-    <label class="fld adv-only"><span>Repeats</span><select id="fRecur">${RECUR.map(r=>`<option value="${r.v}"${r.v===t.recurring?" selected":""}>${r.label}</option>`).join("")}</select></label>
+    <label class="fld adv-only"><span>Repeats</span><select id="fRecur">${RECUR.map(r=>`<option value="${r.v}"${r.v===t.recurring?" selected":""}>${r.label}</option>`).join("")}${(t.recurring && !RECUR.some(r=>r.v===t.recurring))?`<option value="${esc(t.recurring)}" selected>${esc(recurLabel(t.recurring))}</option>`:""}</select></label>
     <div class="check adv-only"><input type="checkbox" id="fParts" ${t.partsOnOrder?"checked":""}><label for="fParts">Waiting on parts (parts on order)</label></div>
 
     <div class="section-h">Assigned to (who)</div>
@@ -849,6 +882,17 @@ function drawTaskModal(){
     }
     editing.project=fpj.value; if(!editingIsNew) saveTask(editing);
   };
+  const fr=$("#fRecur");
+  if(fr) fr.onchange=()=>{
+    if(fr.value==="__custom__"){
+      syncFields();
+      const n=prompt("Repeat every how many days?"); const num=parseInt((n||"").trim(),10);
+      if(num>0) editing.recurring="every:"+num+":days";
+      if(!editingIsNew) saveTask(editing);
+      drawTaskModal(); return;
+    }
+    editing.recurring=fr.value; if(!editingIsNew) saveTask(editing);
+  };
   const psel=$("#parentSel");
   if(psel) psel.onchange=()=>{
     syncFields();
@@ -880,7 +924,7 @@ function syncFields(){
   if(g("fDue")) editing.dueDate=g("fDue").value;
   if(g("fDueTime")) editing.dueTime=g("fDueTime").value;
   if(g("fStatus")) editing.status=g("fStatus").value;
-  if(g("fRecur")) editing.recurring=g("fRecur").value;
+  if(g("fRecur")){ const v=g("fRecur").value; if(v!=="__custom__") editing.recurring=v; }
   if(g("fParts")) editing.partsOnOrder=g("fParts").checked;
   if(g("fProject")){ const v=g("fProject").value; if(v!=="__new__") editing.project=v.trim(); }
   if(g("fCategory")) editing.category=g("fCategory").value;
@@ -895,7 +939,7 @@ function taskBodyChange(e){
   const t=e.target;
   if(t.id==="photoInput"){ handlePhotoPick(t.files); return; }
   if(t.matches("[data-subtoggle]")){ toggleSub(parseInt(t.dataset.subtoggle,10)); return; }
-  if(["fTitle","fDesc","fLoc","fPrio","fDue","fDueTime","fRecur","fParts","fCategory","fProgress","fNextStep","fBlocker"].includes(t.id)){ syncFields(); if(!editingIsNew) saveTask(editing); return; }
+  if(["fTitle","fDesc","fLoc","fPrio","fDue","fDueTime","fParts","fCategory","fProgress","fNextStep","fBlocker"].includes(t.id)){ syncFields(); if(!editingIsNew) saveTask(editing); return; }
   if(t.id==="fStatus"){ onStatusChange(); return; }
 }
 function taskBodyClick(e){
@@ -1393,7 +1437,7 @@ function exportCSV(){
   const rows=arr.map(t=>{ const ss=t.subtasks||[]; return [
     t.seq?("#"+seqPad(t.seq)):"",t.title||"",t.project||"",catLabel(t.category),t.location||"",priorityOf(t).label,t.dueDate||"",statusLabel(t.status),t.initiator||"",
     (t.assignees||[]).map(a=>a.name+(a.external?" (outside)":"")).join("; "),
-    t.partsOnOrder?"Yes":"No",t.blocker||"",t.nextStep||"",t.recurring||"", ss.length?(ss.filter(s=>s.done).length+"/"+ss.length):"",
+    t.partsOnOrder?"Yes":"No",t.blocker||"",t.nextStep||"",recurLabel(t.recurring)||"", ss.length?(ss.filter(s=>s.done).length+"/"+ss.length):"",
     t.createdAt?new Date(t.createdAt).toLocaleDateString():"",
     (t.status==="done"?(t.completedBy||""):""),(t.status==="done"&&t.completedAt?fmtTs(t.completedAt):"") ]; });
   const csv=[head,...rows].map(r=>r.map(c=>{ c=String(c==null?"":c); return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c; }).join(",")).join("\r\n");
