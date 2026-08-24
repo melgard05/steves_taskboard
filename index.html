@@ -330,8 +330,9 @@
 <script>
 "use strict";
 
-const BUILD = 33;   // bump on each deploy for verification
+const BUILD = 34;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:34, note:"Bell test now shows the notification server's real result (per-device status codes) so delivery problems name themselves." },
   { build:33, note:"Shows a banner prompting you to turn on notifications if they are not enabled on this device." },
   { build:32, note:"People list in settings can be sorted by first or last name (defaults to first name)." },
   { build:31, note:"Assignable list is sorted by first name; creating a task now asks to assign anyone you checked but did not tap Assign for." },
@@ -1433,11 +1434,16 @@ async function enablePush(interactive,test){
 }
 async function sendTestPush(){
   try{
-    const r=await fetch(CONFIG.PUSH.WORKER_URL.replace(/\/$/,"")+"/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:[S.currentUser],title:"Alerts are on ✅",body:"You'll get a notification here when a task is assigned to you.",url:"./"})});
-    const j=await r.json().catch(()=>({}));
-    if(j && j.sent===0) alert("Alerts are on, but no device is registered to receive them yet. Fully close the app and reopen it once, then tap the bell again.");
-    else alert("Test notification sent. If it doesn't appear in a few seconds with the app closed, tell me — the worker needs a look.");
-  }catch(e){ alert("Couldn't reach the notification server to send a test."); }
+    const r=await fetch(CONFIG.PUSH.WORKER_URL.replace(/\/$/,"")+"/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:[S.currentUser],title:"Alerts are on \u2705",body:"You'll get a notification here when a task is assigned to you.",url:"./"})});
+    const txt=await r.text();
+    let j={}; try{ j=JSON.parse(txt); }catch(e){}
+    if(!r.ok){ alert("The notification server returned an error ("+r.status+"):\n\n"+txt.slice(0,400)); return; }
+    if(j.sent===0){
+      const detail=(j.results&&j.results.length)?("\n\nPer-device results: "+JSON.stringify(j.results).slice(0,300)):"\n\nNo registered devices were found for you.";
+      alert("The server accepted the request but delivered to 0 devices."+detail+"\n\nSend this message to Claude to diagnose."); return;
+    }
+    alert("Sent to "+(j.sent!=null?j.sent:"?")+" device(s)"+(j.results?" \u2014 results: "+JSON.stringify(j.results).slice(0,300):"")+".\n\nIf nothing appears in a few seconds, send this exact message to Claude.");
+  }catch(e){ alert("Couldn't reach the notification server to send a test: "+((e&&e.message)||e)); }
 }
 async function notifyAssignment(task,names){
   if(!CONFIG.PUSH.WORKER_URL) return;
