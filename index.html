@@ -330,8 +330,9 @@
 <script>
 "use strict";
 
-const BUILD = 35;   // bump on each deploy for verification
+const BUILD = 36;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:36, note:"Managers are notified when any new task is created (with an opt-out in settings under My alerts); tasks have a button to send a reminder push to assigned people." },
   { build:35, note:"Repeats now supports more intervals: every 2 or 3 days, every 2 weeks, every 2, 3, or 6 months, yearly, or a custom every-N-days." },
   { build:34, note:"Bell test now shows the notification server's real result (per-device status codes) so delivery problems name themselves." },
   { build:33, note:"Shows a banner prompting you to turn on notifications if they are not enabled on this device." },
@@ -820,6 +821,7 @@ function drawTaskModal(){
 
     <div class="section-h">Assigned to (who)</div>
     <div class="assignees">${ownerChip}${doerChips||(t.initiator?"":'<span class="hint">No one yet</span>')}</div>
+    ${(!isNew && (t.assignees||[]).some(a=>!a.external))?`<button type="button" class="btn ghost" id="remindBtn" style="width:100%;margin:4px 0 6px">🔔 Send a reminder to assigned people</button>`:""}
     ${isUnassigned(t)?'<div class="hint">No doer assigned — this sits in the Unassigned pool until someone takes it.</div>':""}
     ${(S.config.groups&&S.config.groups.length)?`<div class="grouprow"><span class="grouplbl">Add a group:</span>${S.config.groups.map((g,i)=>`<button type="button" class="grouptag" data-group="${i}">＋ ${esc(g.name)}</button>`).join("")}</div>`:""}
     <div class="assignpick">
@@ -953,6 +955,7 @@ function taskBodyClick(e){
   const gb=t.closest("[data-group]"); if(gb){ assignGroup(parseInt(gb.dataset.group,10)); return; }
   if(t.id==="assignBtn"){ assignChecked(); return; }
   if(t.id==="takePhoto"){ openCamera(); return; }
+  if(t.id==="remindBtn"){ remindAssignees(); return; }
   if(t.id==="hoRequest"){ requestHandoff(); return; }
   if(t.id==="hoApprove"){ approveHandoff(); return; }
   if(t.id==="hoDismiss"){ dismissHandoff(); return; }
@@ -1098,6 +1101,7 @@ function commitNew(){
   if(!(editing.activity||[]).some(e=>e.what==="created the task")) logEvent(editing,"created the task");
   saveTask(editing);
   clearDraft();
+  notifyNewTask(editing);
   const newInternal=(editing.assignees||[]).filter(a=>!a.external).map(a=>a.name);
   if(newInternal.length) notifyAssignment(editing,newInternal);
   editingIsNew=false;            // switch to edit mode so photos/comments unlock
@@ -1247,6 +1251,9 @@ function openSettings(){
   const c=S.config;
   (c.people||[]).sort(peopleSortMode==="last" ? (a,b)=>byLast(a.name,b.name) : (a,b)=>a.name.localeCompare(b.name));
   $("#setBody").innerHTML=`
+    <div class="section-h">My alerts</div>
+    <div class="check"><input type="checkbox" id="muteNewTask" ${(c.people||[]).some(p=>p.name===S.currentUser&&p.muteNewTask)?"":"checked"}><label for="muteNewTask">Notify me when any new task is created</label></div>
+
     <div class="section-h">People</div>
     <div class="hint">Tap a name to edit it. Give each person a <b>unique</b> PIN — that's all they enter to sign in. Tick <b>manager</b> for anyone who should see every task, delete tasks, and pin tasks to the top; leave it off for crew so they only see their own work.</div>
     <div class="seg" style="margin:2px 0 8px"><button type="button" id="psFirst" aria-pressed="${peopleSortMode==='first'}">Sort: First name</button><button type="button" id="psLast" aria-pressed="${peopleSortMode==='last'}">Last name</button></div>
@@ -1287,6 +1294,8 @@ function openSettings(){
   $("#idleMin").onchange=()=>{ lsSet("sb_idlemin",$("#idleMin").value); resetIdle(); };
   $("#addTpl").onclick=()=>{ const ti=$("#tplTitle").value.trim(); if(!ti) return; S.config.templates=S.config.templates||[]; S.config.templates.push({title:ti,location:$("#tplLoc").value,priority:parseInt($("#tplPrio").value,10),recurring:$("#tplRecur").value}); openSettings(); };
   document.querySelectorAll("[data-deltpl]").forEach(b=>b.onclick=()=>{ S.config.templates.splice(parseInt(b.dataset.deltpl,10),1); openSettings(); });
+  const mn=$("#muteNewTask");
+  if(mn) mn.onchange=()=>{ const me=(S.config.people||[]).find(p=>p.name===S.currentUser); if(!me) return; me.muteNewTask=!mn.checked; try{ store.putConfig(S.config); }catch(e){} };
   $("#psFirst").onclick=()=>{ peopleSortMode="first"; lsSet("sb_peoplesort","first"); openSettings(); };
   $("#psLast").onclick=()=>{ peopleSortMode="last"; lsSet("sb_peoplesort","last"); openSettings(); };
   $("#addNewPerson").onclick=()=>{ const v=$("#newPerson").value.trim(); if(!v) return; S.config.people.push({name:v,pin:"",manager:false}); openSettings(); };
@@ -1499,6 +1508,24 @@ async function notifyManagers(title,body,taskId){
   const to=(S.config.people||[]).filter(isManager).map(p=>p.name).filter(n=>n!==S.currentUser);
   if(!to.length) return;
   try{ await fetch(CONFIG.PUSH.WORKER_URL.replace(/\/$/,"")+"/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to,title,body,taskId})}); }catch(e){}
+async function notifyNewTask(task){
+  if(!CONFIG.PUSH.WORKER_URL) return;
+  const to=(S.config.people||[]).filter(p=>isManager(p) && !p.muteNewTask).map(p=>p.name).filter(n=>n!==S.currentUser);
+  if(!to.length) return;
+  try{ await fetch(CONFIG.PUSH.WORKER_URL.replace(/\/$/,"")+"/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to,title:"New task created",body:(task.seq?("#"+seqPad(task.seq)+" "):"")+(task.title||"A task")+" \u2014 by "+(S.currentUser||"someone"),taskId:task.id})}); }catch(e){}
+}
+async function remindAssignees(){
+  const to=(editing.assignees||[]).filter(a=>!a.external).map(a=>a.name).filter(n=>n!==S.currentUser);
+  if(!to.length){ alert("No one else is assigned to this task yet."); return; }
+  try{
+    const r=await fetch(CONFIG.PUSH.WORKER_URL.replace(/\/$/,"")+"/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to,title:"Reminder \u23F0",body:(editing.seq?("#"+seqPad(editing.seq)+" "):"")+(editing.title||"A task")+" \u2014 nudge from "+(S.currentUser||"someone"),taskId:editing.id})});
+    const j=await r.json().catch(()=>({}));
+    logEvent(editing,"sent a reminder to "+to.join(", "));
+    saveTask(editing);
+    alert(j.sent!=null ? ("Reminder sent to "+j.sent+" device(s).") : "Reminder sent.");
+    drawTaskModal();
+  }catch(e){ alert("Couldn't reach the notification server."); }
+}
 }
 
 /* ---------- overdue escalation (client-side, runs on load/poll) ---------- */
