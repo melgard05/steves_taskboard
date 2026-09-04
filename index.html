@@ -89,6 +89,8 @@
   .mode-toggle .btn{font-size:13px;min-height:34px}
   #taskBody.mode-simple .adv-only{display:none}
   #taskBody.mode-advanced .simple-only{display:none}
+  #photoViewer{display:none;position:fixed;inset:0;z-index:210;background:rgba(10,14,16,.94);align-items:center;justify-content:center;padding:18px}
+  #photoViewer img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px}
   #camOverlay{display:none;position:fixed;inset:0;height:100vh;height:100dvh;z-index:200;background:#000;flex-direction:column;align-items:stretch;justify-content:space-between;overflow:hidden}
   #camVideo{flex:1;min-height:0;width:100%;object-fit:contain;background:#000}
   .cam-bar{flex:0 0 auto;display:flex;gap:10px;justify-content:center;align-items:center;padding:14px;padding-bottom:calc(14px + env(safe-area-inset-bottom));background:rgba(0,0,0,.85)}
@@ -172,14 +174,16 @@
   @media(min-width:680px){.scrim{align-items:center}.sheet{border-radius:16px;max-height:90vh;margin-top:0}}
   .sheet h2{margin:0;font-size:18px}
   .sheet-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--bg)}
-  .sheet-body{overflow:auto;padding:14px 16px;flex:1}
+  .sheet-body{overflow:auto;overflow-x:hidden;padding:14px 16px;flex:1}
+  .sheet-body input,.sheet-body select,.sheet-body textarea,.sheet-body button{max-width:100%;box-sizing:border-box}
+  .sheet-body .title,.sheet-body .who-line,.sheet-body .hint,.comment p,.sugg p{overflow-wrap:anywhere}
   .sheet-foot{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line);background:var(--bg)}
   .x{margin-left:auto;border:1px solid var(--line);background:var(--card);border-radius:8px;width:40px;height:40px;font-size:18px;line-height:1}
   label.fld{display:block;margin:0 0 12px}
   label.fld>span{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.04em}
   .fld input[type=text],.fld input[type=date],.fld textarea,.fld select{width:100%;border:1px solid var(--line);border-radius:9px;padding:11px 12px;min-height:46px;background:var(--card);color:var(--ink)}
   .fld textarea{min-height:80px;resize:vertical}
-  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   @media(max-width:520px){.row2{grid-template-columns:1fr}}
   .check{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card);margin-bottom:12px}
   .check input{width:22px;height:22px}
@@ -318,6 +322,7 @@
   </div>
 </div>
 
+<div id="photoViewer"><img id="pvImg" alt=""></div>
 <div id="camOverlay">
   <video id="camVideo" autoplay playsinline muted></video>
   <div class="cam-bar">
@@ -330,8 +335,9 @@
 <script>
 "use strict";
 
-const BUILD = 36;   // bump on each deploy for verification
+const BUILD = 37;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:37, note:"Tap a task photo to view it full size (tap again to close); fixed the task window rendering wider than the screen on phones with larger display or font scale." },
   { build:36, note:"Managers are notified when any new task is created (with an opt-out in settings under My alerts); tasks have a button to send a reminder push to assigned people." },
   { build:35, note:"Repeats now supports more intervals: every 2 or 3 days, every 2 weeks, every 2, 3, or 6 months, yearly, or a custom every-N-days." },
   { build:34, note:"Bell test now shows the notification server's real result (per-device status codes) so delivery problems name themselves." },
@@ -949,6 +955,7 @@ function taskBodyClick(e){
   const rm=t.closest("[data-rm]"); if(rm){ removeAssignee(parseInt(rm.dataset.rm,10)); return; }
   const dsub=t.closest("[data-delsub]"); if(dsub){ removeSub(parseInt(dsub.dataset.delsub,10)); return; }
   const dph=t.closest("[data-delphoto]"); if(dph){ if(confirm("Delete this photo? This can't be undone.")) removePhoto(dph.dataset.delphoto); return; }
+  const th=t.closest(".thumb[data-photo]"); if(th){ const im=th.querySelector("img"); if(im&&im.src){ const pv=$("#photoViewer"); $("#pvImg").src=im.src; pv.style.display="flex"; } return; }
   const op=t.closest("[data-openparent]"); if(op){ openTask(op.dataset.openparent); return; }
   const oc=t.closest("[data-openchild]"); if(oc){ openTask(oc.dataset.openchild); return; }
   if(t.id==="addSubtask"){ addSubtask(editing.id); return; }
@@ -1564,6 +1571,7 @@ $("#sugBtn")?.addEventListener("click",openSuggestions);
 $("#sugClose")?.addEventListener("click",()=>closeScrim("#sugScrim"));
 $("#logClose")?.addEventListener("click",()=>closeScrim("#logScrim"));
 $("#ubReload")?.addEventListener("click",async()=>{ try{ const rs=await navigator.serviceWorker?.getRegistrations(); if(rs) await Promise.all(rs.map(r=>r.update())); }catch(e){} location.reload(); });
+$("#photoViewer")?.addEventListener("click",()=>{ const pv=$("#photoViewer"); pv.style.display="none"; $("#pvImg").src=""; });
 $("#camCancel")?.addEventListener("click",closeCamera);
 $("#camShot")?.addEventListener("click",capturePhoto);
 $("#camFlip")?.addEventListener("click",flipCamera);
