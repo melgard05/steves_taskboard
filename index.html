@@ -335,8 +335,9 @@
 <script>
 "use strict";
 
-const BUILD = 37;   // bump on each deploy for verification
+const BUILD = 38;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:38, note:"Creating a task now closes the window and returns to the list; tasks show the date and time they were created (also in the CSV)." },
   { build:37, note:"Tap a task photo to view it full size (tap again to close); fixed the task window rendering wider than the screen on phones with larger display or font scale." },
   { build:36, note:"Managers are notified when any new task is created (with an opt-out in settings under My alerts); tasks have a button to send a reminder push to assigned people." },
   { build:35, note:"Repeats now supports more intervals: every 2 or 3 days, every 2 weeks, every 2, 3, or 6 months, yearly, or a custom every-N-days." },
@@ -806,6 +807,7 @@ function drawTaskModal(){
     ${showAck?`<div class="ack-bar"><span>You're on this. Let the team know you've seen it.</span><button class="btn" id="ackBtn">Acknowledge</button></div>`:""}
 
     <div class="mode-toggle"><button type="button" id="modeToggle" class="btn ghost">${advForm?"◂ Simple view":"⚙ Advanced options"}</button></div>
+    ${!isNew?`<div class="hint" style="margin:-2px 0 8px">Created ${esc(fmtTs(t.createdAt||0))}${t.initiator?` by ${esc(t.initiator)}`:""}</div>`:""}
 
     ${(isNew && (S.config.templates||[]).length)?`<div class="section-h" style="margin-top:0">Quick start</div><div class="tpl-row">${(S.config.templates||[]).map((tp,ti)=>`<button type="button" class="tpl-chip" data-tpl="${ti}">${esc(tp.title)}</button>`).join("")}</div>`:""}
     <label class="fld"><span>What</span><input type="text" id="fTitle" value="${esc(t.title)}" placeholder="What + where — e.g. Replace ballast, bay 2 — Transfer Building"></label>
@@ -1111,8 +1113,9 @@ function commitNew(){
   notifyNewTask(editing);
   const newInternal=(editing.assignees||[]).filter(a=>!a.external).map(a=>a.name);
   if(newInternal.length) notifyAssignment(editing,newInternal);
-  editingIsNew=false;            // switch to edit mode so photos/comments unlock
-  drawTaskModal(); hydratePhotos();
+  editingIsNew=false;
+  closeScrim("#taskScrim");      // done — back to the list
+  render();
 }
 async function deleteTask(){
   if(!canSeeAll()){ alert("Only managers can delete tasks. You can mark it Done instead."); return; }
@@ -1454,7 +1457,7 @@ function exportCSV(){
     t.seq?("#"+seqPad(t.seq)):"",t.title||"",t.project||"",catLabel(t.category),t.location||"",priorityOf(t).label,t.dueDate||"",statusLabel(t.status),t.initiator||"",
     (t.assignees||[]).map(a=>a.name+(a.external?" (outside)":"")).join("; "),
     t.partsOnOrder?"Yes":"No",t.blocker||"",t.nextStep||"",recurLabel(t.recurring)||"", ss.length?(ss.filter(s=>s.done).length+"/"+ss.length):"",
-    t.createdAt?new Date(t.createdAt).toLocaleDateString():"",
+    t.createdAt?fmtTs(t.createdAt):"",
     (t.status==="done"?(t.completedBy||""):""),(t.status==="done"&&t.completedAt?fmtTs(t.completedAt):"") ]; });
   const csv=[head,...rows].map(r=>r.map(c=>{ c=String(c==null?"":c); return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c; }).join(",")).join("\r\n");
   const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
