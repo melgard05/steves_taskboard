@@ -335,8 +335,9 @@
 <script>
 "use strict";
 
-const BUILD = 38;   // bump on each deploy for verification
+const BUILD = 39;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:39, note:"Fixed new tasks sometimes vanishing right after Create: the app now confirms the save reached the server before closing the window, and background sync can no longer overwrite just-created tasks." },
   { build:38, note:"Creating a task now closes the window and returns to the list; tasks show the date and time they were created (also in the CSV)." },
   { build:37, note:"Tap a task photo to view it full size (tap again to close); fixed the task window rendering wider than the screen on phones with larger display or font scale." },
   { build:36, note:"Managers are notified when any new task is created (with an opt-out in settings under My alerts); tasks have a button to send a reminder push to assigned people." },
@@ -730,7 +731,7 @@ function card(t,priv){
 function logEvent(t,what){ (t.activity=t.activity||[]).push({ts:Date.now(),who:S.currentUser||"Someone",what}); }
 function logSys(t,what){ (t.activity=t.activity||[]).push({ts:Date.now(),who:"System",what}); }
 
-async function saveTask(t,silent){ t.updatedAt=Date.now(); S.tasks[t.id]=t; if(!silent) render(); try{ await store.putTask(t); }catch(e){ $("#connTxt").textContent="Sync issue — retrying"; } }
+async function saveTask(t,silent){ t.updatedAt=Date.now(); S.tasks[t.id]=t; if(!silent) render(); try{ await store.putTask(t); return true; }catch(e){ $("#connTxt").textContent="Sync issue — retrying"; return false; } }
 function nextSeq(){
   let mx=S.config.lastSeq||0;
   Object.values(S.tasks).forEach(t=>{ if(typeof t.seq==="number" && t.seq>mx) mx=t.seq; });
@@ -1094,7 +1095,7 @@ async function onStatusChange(){
   drawTaskModal();
 }
 
-function commitNew(){
+async function commitNew(){
   syncFields();
   if(!S.currentUser){ alert("Pick who you are up top first, so the task has a starter."); return; }
   if(!editing.title){ const ti=$("#fTitle"); ti.focus(); ti.style.borderColor="var(--p-crit)"; return; }
@@ -1108,7 +1109,8 @@ function commitNew(){
   editing.initiator=S.currentUser;
   if(!editing.seq) editing.seq=nextSeq();
   if(!(editing.activity||[]).some(e=>e.what==="created the task")) logEvent(editing,"created the task");
-  saveTask(editing);
+  const ok=await saveTask(editing);
+  if(!ok){ alert("Couldn\u2019t save the task \u2014 check your connection and tap Create task again. Nothing you entered was lost."); return; }
   clearDraft();
   notifyNewTask(editing);
   const newInternal=(editing.assignees||[]).filter(a=>!a.external).map(a=>a.name);
@@ -1632,7 +1634,10 @@ async function refresh(){
   try{
     if(AUTH_ON){ await ensureAuth(); if(authFailed){ const b=$("#cfgBanner"); b.style.display="block"; b.innerHTML='Could not sign in to the database. Check <code>CONFIG.AUTH</code> (API key, email, password) and the database rules.'; setConn(""); if(!S.modalOpen) render(); return; } else { const b=$("#cfgBanner"); if(b && b.textContent.indexOf("sign in")>-1) b.style.display="none"; } }
     const {tasks,config}=await store.loadAll();
-    S.tasks=tasks||{};
+    const fetched=tasks||{};
+    const cutoff=Date.now()-15000;   // protect writes still in flight from a stale snapshot
+    for(const id in S.tasks){ const lt=S.tasks[id]; if(lt && (lt.updatedAt||0)>cutoff && (!fetched[id] || (fetched[id].updatedAt||0)<(lt.updatedAt||0))) fetched[id]=lt; }
+    S.tasks=fetched;
     if(config) S.config=config; else await store.putConfig(S.config);
     checkBuild();
     if(canSeeAll()){ try{ const items=await store.loadSuggestions(); S.sugOpen=Object.values(items||{}).filter(x=>x.status!=="done").length; }catch(e){} }
