@@ -29,9 +29,9 @@
   a{color:var(--accent)}
 
   header{position:sticky;top:0;z-index:30;background:var(--header);color:#eaf0ee;padding:10px 14px;padding-top:calc(10px + env(safe-area-inset-top))}
-  #updateBar{display:none;align-items:center;justify-content:center;gap:14px;background:#5a3a22;color:#fff;padding:11px 14px;font-size:14px;font-weight:600;text-align:center;animation:ubPulse 2s ease-in-out infinite}
-  @keyframes ubPulse{0%,100%{background:#5a3a22}50%{background:#7a4f2e}}
-  @media (prefers-reduced-motion:reduce){ #updateBar{animation:none} }
+  #updateBar{display:none;align-items:center;gap:10px;flex-wrap:wrap;background:#fff4e0;border-bottom:1px solid #f3d9a6;color:#4a3a1e;padding:11px 14px;font-size:14px;font-weight:600}
+  #updateBar span{flex:1;min-width:200px;text-align:left}
+  #updateBar .btn{background:#5a3a22;color:#fff;border-color:#5a3a22}
   #updateBar .btn{background:#fff;color:#5a3a22;border:none;font-weight:800;min-height:36px;padding:0 16px}
   .hrow{display:flex;align-items:center;gap:10px;max-width:920px;margin:0 auto}
   .brand{font-weight:700;font-size:18px;letter-spacing:.2px;display:flex;align-items:center;gap:8px;white-space:nowrap}
@@ -198,7 +198,8 @@
   .ap-top{display:flex;gap:8px;align-items:center;margin-bottom:8px}
   .ap-top #apFilter{flex:1;margin-bottom:0}
   .ap-top #assignBtn{flex:0 0 auto;min-height:44px;white-space:nowrap}
-  .aplist{max-height:210px;overflow:auto;border:1px solid var(--line);border-radius:9px;padding:4px;background:var(--card)}
+  .aplist{max-height:210px;overflow:auto;overscroll-behavior:contain;border:1px solid var(--line);border-radius:9px;padding:4px;background:var(--card)}
+  @media(max-width:680px){ .aplist{max-height:none;overflow:visible} }
   .apopt{display:flex;align-items:center;gap:10px;padding:10px;border-radius:7px}
   .apopt:hover{background:var(--chip)}
   .apopt input{width:18px;height:18px;flex:none;margin:0}
@@ -335,8 +336,10 @@
 <script>
 "use strict";
 
-const BUILD = 39;   // bump on each deploy for verification
+const BUILD = 41;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:41, note:"New-build notices now show only as a header bar in the app (styled like the acknowledge bar) — no more phone notification for updates." },
+  { build:40, note:"Saves and sign-ins now time out with a clear message instead of hanging forever when the network blocks them; on phones the assignment checklist shows everyone in one scroll instead of a tiny inner window." },
   { build:39, note:"Fixed new tasks sometimes vanishing right after Create: the app now confirms the save reached the server before closing the window, and background sync can no longer overwrite just-created tasks." },
   { build:38, note:"Creating a task now closes the window and returns to the list; tasks show the date and time they were created (also in the CSV)." },
   { build:37, note:"Tap a task photo to view it full size (tap again to close); fixed the task window rendering wider than the screen on phones with larger display or font scale." },
@@ -448,19 +451,20 @@ async function ensureAuth(){
   if(idToken && Date.now() < tokenExp-60000) return;          // still valid
   try{
     if(refreshToken){
-      const r=await fetch("https://securetoken.googleapis.com/v1/token?key="+CONFIG.AUTH.API_KEY,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"grant_type=refresh_token&refresh_token="+encodeURIComponent(refreshToken)});
+      const r=await fetchT("https://securetoken.googleapis.com/v1/token?key="+CONFIG.AUTH.API_KEY,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"grant_type=refresh_token&refresh_token="+encodeURIComponent(refreshToken)});
       if(r.ok){ const j=await r.json(); idToken=j.id_token; refreshToken=j.refresh_token; tokenExp=Date.now()+(parseInt(j.expires_in,10)||3600)*1000; authFailed=false; return; }
     }
-    const r=await fetch("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key="+CONFIG.AUTH.API_KEY,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:CONFIG.AUTH.EMAIL,password:CONFIG.AUTH.PASSWORD,returnSecureToken:true})});
+    const r=await fetchT("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key="+CONFIG.AUTH.API_KEY,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:CONFIG.AUTH.EMAIL,password:CONFIG.AUTH.PASSWORD,returnSecureToken:true})});
     if(r.ok){ const j=await r.json(); idToken=j.idToken; refreshToken=j.refreshToken; tokenExp=Date.now()+(parseInt(j.expiresIn,10)||3600)*1000; authFailed=false; }
     else { authFailed=true; idToken=""; }
   }catch(e){ authFailed=true; }
 }
 function authParam(){ return (AUTH_ON && idToken) ? ("?auth="+encodeURIComponent(idToken)) : ""; }
 
-async function fbGet(p){ await ensureAuth(); const r=await fetch(base+p+".json"+authParam(),{cache:"no-store"}); if(!r.ok) throw new Error("GET "+r.status); return await r.json(); }
-async function fbPut(p,d){ await ensureAuth(); const r=await fetch(base+p+".json"+authParam(),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)}); if(!r.ok) throw new Error("PUT "+r.status); return await r.json(); }
-async function fbDel(p){ await ensureAuth(); const r=await fetch(base+p+".json"+authParam(),{method:"DELETE"}); if(!r.ok) throw new Error("DEL "+r.status); }
+function fetchT(url,opts,ms){ const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms||15000); return fetch(url,Object.assign({},opts||{},{signal:c.signal})).finally(()=>clearTimeout(t)); }
+async function fbGet(p){ await ensureAuth(); const r=await fetchT(base+p+".json"+authParam(),{cache:"no-store"}); if(!r.ok) throw new Error("GET "+r.status); return await r.json(); }
+async function fbPut(p,d){ await ensureAuth(); const r=await fetchT(base+p+".json"+authParam(),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)}); if(!r.ok) throw new Error("PUT "+r.status); return await r.json(); }
+async function fbDel(p){ await ensureAuth(); const r=await fetchT(base+p+".json"+authParam(),{method:"DELETE"}); if(!r.ok) throw new Error("DEL "+r.status); }
 
 function persistLocal(){ lsSet("sb_local", JSON.stringify(local)); }
 const store = {
@@ -1620,7 +1624,7 @@ function checkBuild(){
       const note=(CHANGELOG[0]&&CHANGELOG[0].note)||"";
       S.config.appBuild=BUILD; S.config.appBuildNote=note; S.config.changelog=CHANGELOG;
       try{ store.putConfig(S.config); }catch(e){}
-      if(latest>0) notifyEveryone("Task Board updated (build "+BUILD+")", note+" — open the app and tap Reload.");
+      /* build updates announce in-app only (header bar) — no phone notification */
     }
   }
 }
