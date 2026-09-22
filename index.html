@@ -338,8 +338,9 @@
 <script>
 "use strict";
 
-const BUILD = 44;   // bump on each deploy for verification
+const BUILD = 45;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:45, note:"Fixed the real cause of the Create window not closing: an internal error right after saving (my bug since build 36) stopped the close step. Also un-breaks the board bell and the new-task manager notification, which the same bug had disabled." },
   { build:44, note:"Managers can resend a notification right from the board: a small bell on each card nudges everyone assigned, with a confirm first." },
   { build:43, note:"Every card on the home page shows when (and by whom) the task was created; Create now double-checks the database when a save response is lost, so the window closes instead of falsely reporting a failure." },
   { build:42, note:"Fixed the new-version bar disappearing seconds after it appeared — the two update checks no longer fight over it; once shown it stays until you refresh." },
@@ -1532,6 +1533,7 @@ async function notifyManagers(title,body,taskId){
   const to=(S.config.people||[]).filter(isManager).map(p=>p.name).filter(n=>n!==S.currentUser);
   if(!to.length) return;
   try{ await fetch(CONFIG.PUSH.WORKER_URL.replace(/\/$/,"")+"/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to,title,body,taskId})}); }catch(e){}
+}
 async function notifyNewTask(task){
   if(!CONFIG.PUSH.WORKER_URL) return;
   const to=(S.config.people||[]).filter(p=>isManager(p) && !p.muteNewTask).map(p=>p.name).filter(n=>n!==S.currentUser);
@@ -1550,7 +1552,6 @@ async function remindAssignees(task){
     alert(j.sent!=null ? ("Reminder sent to "+j.sent+" device(s).") : "Reminder sent.");
     if(editing&&editing.id===t.id&&S.modalOpen) drawTaskModal();
   }catch(e){ alert("Couldn't reach the notification server."); }
-}
 }
 
 /* ---------- overdue escalation (client-side, runs on load/poll) ---------- */
