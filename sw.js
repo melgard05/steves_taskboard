@@ -1,58 +1,74 @@
-/* ====================================================================
-   Service worker for the Mileage & Service Quote Calculator PWA.
+/* sw.js — Task Board service worker.
+   Deploy at the SAME path as index.html (repo root) so its scope covers the app.
+   Handles: offline app-shell caching + background push notifications. */
 
-   Strategy: network-first for the app's own files (so you always get
-   the latest version when online), with a cached copy used as an
-   offline fallback. Google Maps / Routes / Places requests are NOT
-   intercepted - they always go straight to the network.
-   ==================================================================== */
+const CACHE = "taskboard-shell-v3";   // bump this string when you want to force a cache refresh
 
-/* Cache version — BUMP THIS STRING ON EVERY DEPLOY (keep it in step with
-   APP_VERSION in index.html). Changing it is what makes the browser install
-   a new worker, which triggers the "new version available" banner. */
-const CACHE = 'mqc-v1.9';
-const SHELL = './';
-
-self.addEventListener('install', event => {
-  // Do NOT skipWaiting automatically — we want the new worker to WAIT so the
-  // app can show an update banner. It activates when the user clicks Refresh
-  // (which posts SKIP_WAITING below) or after all tabs close.
+/* ---------- offline app shell ---------- */
+self.addEventListener("install", e => {
+  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(["./", "./index.html"]).catch(() => {})));
 });
-
-self.addEventListener('message', event => {
-  // the page asks the waiting worker to take over immediately
-  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+self.addEventListener("activate", e => {
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)));
+    await self.clients.claim();
+  })());
 });
-
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
-});
-
-self.addEventListener('fetch', event => {
-  const req = event.request;
+self.addEventListener("fetch", e => {
+  const req = e.request;
+  if (req.method !== "GET") return;                 // never touch Firebase/worker writes
   const url = new URL(req.url);
+  const isShell = req.mode === "navigate" ||
+    (url.origin === self.location.origin && (url.pathname.endsWith("/") || url.pathname.endsWith("/index.html")));
+  if (!isShell) return;                             // only the app page is cached; data stays live
+  // Network-first so deploys show up immediately; fall back to cache when offline.
+  e.respondWith((async () => {
+    try {
+      const fresh = await fetch(req, { cache: "no-store" });
+      const c = await caches.open(CACHE);
+      c.put("./index.html", fresh.clone()).catch(() => {});
+      return fresh;
+    } catch (_) {
+      const cached = await caches.match("./index.html");
+      return cached || new Response("<h1>Offline</h1><p>Reconnect to load Task Board.</p>", { headers: { "Content-Type": "text/html" } });
+    }
+  })());
+});
 
-  // only handle GET requests for THIS app's own files;
-  // let Google APIs and any other cross-origin calls pass through untouched
-  if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+/* ---------- background push ---------- */
+self.addEventListener("push", event => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; }
+  catch (_) { d = { title: "Task Board", body: event.data ? event.data.text() : "" }; }
+  const title = d.title || "Task Board";
+  const isUpdate = /updated \(build/i.test(title);
+  const options = {
+    body: d.body || "",
+    tag: d.taskId || (isUpdate ? "taskboard-update" : "taskboard"),
+    renotify: true,
+    requireInteraction: !!isUpdate,
+    actions: isUpdate ? [{ action: "reload", title: "🔄 Refresh now" }] : [],
+    data: { url: d.url || "./", isUpdate }
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
 
-  event.respondWith(
-    fetch(req)
-      .then(res => {
-        // online: serve fresh and refresh the cached copy
-        if (res && res.status === 200 && res.type === 'basic') {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(req, copy));
-        }
-        return res;
-      })
-      .catch(() =>
-        // offline: serve the cached file, falling back to the app shell
-        caches.match(req).then(hit => hit || caches.match(SHELL))
-      )
-  );
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "./";
+  const wantsReload = event.action === "reload" || (event.notification.data && event.notification.data.isUpdate);
+  event.waitUntil((async () => {
+    if (wantsReload) { try { await self.registration.update(); } catch (_) {} }
+    const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const c of all) {
+      if ("focus" in c) {
+        await c.focus();
+        if (wantsReload && "navigate" in c) { try { return await c.navigate(c.url); } catch (_) {} }
+        return c;
+      }
+    }
+    if (self.clients.openWindow) return self.clients.openWindow(url);
+  })());
 });
