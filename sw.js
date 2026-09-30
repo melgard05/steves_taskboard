@@ -2,7 +2,7 @@
    Deploy at the SAME path as index.html (repo root) so its scope covers the app.
    Handles: offline app-shell caching + background push notifications. */
 
-const CACHE = "taskboard-shell-v3";   // bump this string when you want to force a cache refresh
+const CACHE = "taskboard-shell-v5";   // bump this string when you want to force a cache refresh
 
 /* ---------- offline app shell ---------- */
 self.addEventListener("install", e => {
@@ -12,7 +12,8 @@ self.addEventListener("install", e => {
 self.addEventListener("activate", e => {
   e.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)));
+    // only our own old caches — Baseline and the other apps on this site keep theirs
+    await Promise.all(keys.filter(k => k.indexOf("taskboard-") === 0 && k !== CACHE).map(k => caches.delete(k)));
     await self.clients.claim();
   })());
 });
@@ -61,14 +62,18 @@ self.addEventListener("notificationclick", event => {
   const wantsReload = event.action === "reload" || (event.notification.data && event.notification.data.isUpdate);
   event.waitUntil((async () => {
     if (wantsReload) { try { await self.registration.update(); } catch (_) {} }
+    // Only focus a window that is actually THIS app. Other apps live on the
+    // same domain (Baseline, for one), and matching any window on the origin
+    // would bring one of those to the front instead of the Task Board.
+    const scope = self.registration.scope;
     const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const c of all) {
-      if ("focus" in c) {
+      if ("focus" in c && c.url.indexOf(scope) === 0) {
         await c.focus();
         if (wantsReload && "navigate" in c) { try { return await c.navigate(c.url); } catch (_) {} }
         return c;
       }
     }
-    if (self.clients.openWindow) return self.clients.openWindow(url);
+    if (self.clients.openWindow) return self.clients.openWindow(new URL(url, scope).href);
   })());
 });
