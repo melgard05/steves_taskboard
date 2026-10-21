@@ -338,8 +338,9 @@
 <script>
 "use strict";
 
-const BUILD = 45;   // bump on each deploy for verification
+const BUILD = 46;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:46, note:"Notifications now show the Steve's Sanitation wrench icon in the status bar instead of a blank white box." },
   { build:45, note:"Fixed the real cause of the Create window not closing: an internal error right after saving (my bug since build 36) stopped the close step. Also un-breaks the board bell and the new-task manager notification, which the same bug had disabled." },
   { build:44, note:"Managers can resend a notification right from the board: a small bell on each card nudges everyone assigned, with a confirm first." },
   { build:43, note:"Every card on the home page shows when (and by whom) the task was created; Create now double-checks the database when a save response is lost, so the window closes instead of falsely reporting a failure." },
