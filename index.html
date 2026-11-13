@@ -338,8 +338,9 @@
 <script>
 "use strict";
 
-const BUILD = 46;   // bump on each deploy for verification
+const BUILD = 47;   // bump on each deploy for verification
 const CHANGELOG = [
+  { build:47, note:"Fixed the People settings on phones: group member lists scroll in their own box again instead of names spilling over each other." },
   { build:46, note:"Notifications now show the Steve's Sanitation wrench icon in the status bar instead of a blank white box." },
   { build:45, note:"Fixed the real cause of the Create window not closing: an internal error right after saving (my bug since build 36) stopped the close step. Also un-breaks the board bell and the new-task manager notification, which the same bug had disabled." },
   { build:44, note:"Managers can resend a notification right from the board: a small bell on each card nudges everyone assigned, with a confirm first." },
@@ -1296,7 +1297,7 @@ function openSettings(){
     <div class="addbar" style="margin-top:8px"><input type="text" id="newProj" placeholder="Add a project"><button class="btn" id="addNewProj">Add</button></div>
     <div class="section-h">Groups</div>
     <div class="hint">Put people in groups (a person can be in several). Then assign a whole group to a task in one tap from the assign screen.</div>
-    <div>${(c.groups||[]).map((g,gi)=>`<div class="group-edit"><div class="people-row"><input class="nm-edit" data-gname="${gi}" data-orig="${esc(g.name)}" value="${esc(g.name)}" aria-label="Group name"><button class="btn ghost danger" data-delg="${gi}">Remove</button></div><div class="aplist" style="max-height:170px;margin-top:4px">${[...(c.people||[])].sort((a,b)=>byLast(a.name,b.name)).map(p=>`<label class="apopt"><input type="checkbox" data-gm="${gi}" data-gmname="${esc(p.name)}" ${(g.members||[]).includes(p.name)?"checked":""}><span>${esc(p.name)}</span></label>`).join("")}</div></div>`).join("")}</div>
+    <div>${(c.groups||[]).map((g,gi)=>`<div class="group-edit"><div class="people-row"><input class="nm-edit" data-gname="${gi}" data-orig="${esc(g.name)}" value="${esc(g.name)}" aria-label="Group name"><button class="btn ghost danger" data-delg="${gi}">Remove</button></div><div class="aplist" style="max-height:170px;overflow:auto;overscroll-behavior:contain;margin-top:4px">${[...(c.people||[])].sort((a,b)=>byLast(a.name,b.name)).map(p=>`<label class="apopt"><input type="checkbox" data-gm="${gi}" data-gmname="${esc(p.name)}" ${(g.members||[]).includes(p.name)?"checked":""}><span>${esc(p.name)}</span></label>`).join("")}</div></div>`).join("")}</div>
     <div class="addbar" style="margin-top:8px"><input type="text" id="newGroup" placeholder="Add a group (e.g. Yard Crew)"><button class="btn" id="addNewGroup">Add</button></div>
     <div class="section-h">Quick-start templates</div>
     <div class="hint">One-tap presets for tasks you create often. They prefill the title, location, importance, and repeat on a new task.</div>
